@@ -1,0 +1,27 @@
+# Librerías para el backend (FastAPI, Uvicorn)
+fastapi==0.95.0
+uvicorn==0.21.0
+
+# Librerías para hacer peticiones HTTP (para interactuar con AWS)
+requests==2.28.1
+
+# Librerías para trabajar con los sensores y actuadores de la Raspberry Pi
+RPi.GPIO==0.7.0
+adafruit-circuitpython-pca9685==2.2.0
+hx711==0.1.0
+busio==1.7.1
+
+# Librerías para trabajar con la pantalla táctil ILI9341 (usando framebuffer o SPI)
+luma.oled==1.4.0
+
+# Librerías para la interfaz web (Streamlit)
+streamlit==1.14.0
+
+# Librerías para AWS (si usas Boto3 para interactuar directamente con los modelos en AWS)
+boto3==1.24.1
+
+# Librerías para manejar imágenes si fuera necesario (puedes cambiar dependiendo de la forma en que procesas las imágenes)
+pillow==9.1.0
+
+# Librerías de control de dispositivos I2C (para PCA9685 y otros sensores)
+adafruit-blinka==6.20.0
