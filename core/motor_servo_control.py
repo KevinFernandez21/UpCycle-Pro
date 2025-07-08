@@ -1,70 +1,57 @@
+# SPDX-FileCopyrightText: 2021 ladyada for Adafruit Industries
+# SPDX-License-Identifier: MIT
+
 import time
+
 import board
-import busio
-from adafruit_pca9685 import PCA9685
 from adafruit_motor import servo
 
-def inicializar_pca9685(reintentos=5):
-    """Inicializa PCA9685 con reintentos"""
-    for intento in range(reintentos):
-        try:
-            print(f"Intento {intento + 1} de conectar con PCA9685...")
-            i2c = busio.I2C(board.SCL, board.SDA)
-            pca = PCA9685(i2c)
-            pca.frequency = 50
-            print("✓ PCA9685 conectado exitosamente")
-            return pca
-        except Exception as e:
-            print(f"✗ Error en intento {intento + 1}: {e}")
-            if intento < reintentos - 1:
-                print("Esperando 2 segundos antes del siguiente intento...")
-                time.sleep(2)
-            else:
-                print("No se pudo conectar con PCA9685")
-                return None
+from adafruit_pca9685 import PCA9685
 
-def main():
-    # Inicializar PCA9685
-    pca = inicializar_pca9685()
-    if pca is None:
-        print("Error: No se pudo inicializar PCA9685")
-        return
-    
-    try:
-        # Crear objeto servo en el canal 0
-        servo_motor = servo.Servo(pca.channels[0])
-        print("✓ Servo configurado en canal 0")
-        
-        print("Iniciando movimiento del servo...")
-        print("Presiona Ctrl+C para salir")
-        
-        while True:
-            # Mover servo a 0 grados
-            servo_motor.angle = 0
-            print("Servo a 0 grados")
-            time.sleep(1)
-            
-            # Mover servo a 90 grados
-            servo_motor.angle = 90
-            print("Servo a 90 grados")
-            time.sleep(1)
-            
-            # Mover servo a 180 grados
-            servo_motor.angle = 180
-            print("Servo a 180 grados")
-            time.sleep(1)
-            
-    except KeyboardInterrupt:
-        print("\nPrograma interrumpido por el usuario")
-        
-    except Exception as e:
-        print(f"Error durante la ejecución: {e}")
-        
-    finally:
-        # Limpiar recursos
-        if 'pca' in locals():
-            pca.deinit()
-        print("Recursos liberados")
+i2c = board.I2C()  # uses board.SCL and board.SDA
+# i2c = busio.I2C(board.GP1, board.GP0)    # Pi Pico RP2040
 
-if __name__ == "__main__":
-    main()
+# Create a simple PCA9685 class instance.
+pca = PCA9685(i2c)
+# You can optionally provide a finer tuned reference clock speed to improve the accuracy of the
+# timing pulses. This calibration will be specific to each board and its environment. See the
+# calibration.py example in the PCA9685 driver.
+# pca = PCA9685(i2c, reference_clock_speed=25630710)
+pca.frequency = 50
+
+# To get the full range of the servo you will likely need to adjust the min_pulse and max_pulse to
+# match the stall points of the servo.
+# This is an example for the Sub-micro servo: https://www.adafruit.com/product/2201
+# servo7 = servo.Servo(pca.channels[7], min_pulse=580, max_pulse=2350)
+# This is an example for the Micro Servo - High Powered, High Torque Metal Gear:
+#   https://www.adafruit.com/product/2307
+# servo7 = servo.Servo(pca.channels[7], min_pulse=500, max_pulse=2600)
+# This is an example for the Standard servo - TowerPro SG-5010 - 5010:
+#   https://www.adafruit.com/product/155
+# servo7 = servo.Servo(pca.channels[7], min_pulse=400, max_pulse=2400)
+# This is an example for the Analog Feedback Servo: https://www.adafruit.com/product/1404
+# servo7 = servo.Servo(pca.channels[7], min_pulse=600, max_pulse=2500)
+# This is an example for the Micro servo - TowerPro SG-92R: https://www.adafruit.com/product/169
+# servo7 = servo.Servo(pca.channels[7], min_pulse=500, max_pulse=2400)
+
+# The pulse range is 750 - 2250 by default. This range typically gives 135 degrees of
+# range, but the default is to use 180 degrees. You can specify the expected range if you wish:
+# servo7 = servo.Servo(pca.channels[7], actuation_range=135)
+servo7 = servo.Servo(pca.channels[0])
+
+# We sleep in the loops to give the servo time to move into position.
+for i in range(180):
+    servo7.angle = i
+    time.sleep(0.03)
+for i in range(180):
+    servo7.angle = 180 - i
+    time.sleep(0.03)
+
+# You can also specify the movement fractionally.
+fraction = 0.0
+while fraction < 1.0:
+    servo7.fraction = fraction
+    fraction += 0.01
+    time.sleep(0.03)
+
+pca.deinit()
