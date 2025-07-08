@@ -1,46 +1,74 @@
-from adafruit_pca9685 import PCA9685
-from board import SCL, SDA
-import busio
 import RPi.GPIO as GPIO
 import time
 
-LED_PINS = {"plastico": 5, "carton": 6, "vidrio": 13}
-MOTOR_PIN = 18
+# Configuración del GPIO
+GPIO.setmode(GPIO.BCM)  # Usar numeración BCM
+GPIO.setwarnings(False)
 
-class MotorController:
-    def __init__(self):
-        self.i2c = busio.I2C(SCL, SDA)
-        self.pca = PCA9685(self.i2c)
-        self.pca.frequency = 50
-        GPIO.setmode(GPIO.BCM)
-        for pin in LED_PINS.values():
-            GPIO.setup(pin, GPIO.OUT)
-        GPIO.setup(MOTOR_PIN, GPIO.OUT)
-        self.motor_pwm = GPIO.PWM(MOTOR_PIN, 100)
-        self.motor_pwm.start(0)
+# Pin donde está conectado el transistor 2N222
+MOTOR_PIN = 27
 
-    def iniciar_banda(self):
-        self.motor_pwm.ChangeDutyCycle(50)
+# Configurar el pin como salida
+GPIO.setup(MOTOR_PIN, GPIO.OUT)
 
-    def detener_banda(self):
-        self.motor_pwm.ChangeDutyCycle(0)
+def motor_on():
+    """Enciende el motor"""
+    GPIO.output(MOTOR_PIN, GPIO.HIGH)
+    print("Motor encendido")
 
-    def activar_led_y_servo(self, clase):
-        self._encender_led(clase)
-        canal = {"plastico": 0, "vidrio": 1, "carton": 2}[clase]
-        self.pca.channels[canal].duty_cycle = 0x7FFF
+def motor_off():
+    """Apaga el motor"""
+    GPIO.output(MOTOR_PIN, GPIO.LOW)
+    print("Motor apagado")
 
-    def reiniciar_servo(self, clase):
-        canal = {"plastico": 0, "vidrio": 1, "carton": 2}[clase]
-        self.pca.channels[canal].duty_cycle = 0
+def motor_pulse(duration=1):
+    """Pulso del motor por un tiempo determinado"""
+    motor_on()
+    time.sleep(duration)
+    motor_off()
 
-    def _encender_led(self, clase):
-        for tipo, pin in LED_PINS.items():
-            GPIO.output(pin, tipo == clase)
+def motor_pwm(duty_cycle=50, frequency=1000):
+    """Control PWM del motor para velocidad variable"""
+    pwm = GPIO.PWM(MOTOR_PIN, frequency)
+    pwm.start(duty_cycle)
+    return pwm
 
-    def detener_todo(self):
-        self.detener_banda()
-        for pin in LED_PINS.values():
-            GPIO.output(pin, False)
-        for canal in range(3):
-            self.pca.channels[canal].duty_cycle = 0
+# Ejemplo de uso
+try:
+    print("=== Control de Motor con 2N222 ===")
+    
+    # Encender motor por 2 segundos
+    print("1. Encendiendo motor por 2 segundos...")
+    motor_pulse(2)
+    time.sleep(1)
+    
+    # Pulsos cortos
+    print("2. Pulsos cortos...")
+    for i in range(5):
+        motor_pulse(0.5)
+        time.sleep(0.5)
+    
+    # Control PWM (velocidad variable)
+    print("3. Control PWM - Velocidad variable...")
+    pwm = motor_pwm(30, 1000)  # 30% duty cycle, 1kHz
+    time.sleep(3)
+    
+    # Aumentar velocidad gradualmente
+    print("4. Aumentando velocidad...")
+    for speed in range(30, 101, 10):
+        pwm.ChangeDutyCycle(speed)
+        print(f"   Velocidad: {speed}%")
+        time.sleep(1)
+    
+    # Detener PWM
+    pwm.stop()
+    
+    print("5. Programa terminado")
+
+except KeyboardInterrupt:
+    print("\nPrograma interrumpido por el usuario")
+
+finally:
+    # Limpiar configuración GPIO
+    GPIO.cleanup()
+    print("GPIO limpiado")
