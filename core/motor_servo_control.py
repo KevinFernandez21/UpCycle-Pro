@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2024 Servo Controller
+# SPDX-FileCopyrightText: 2021 ladyada for Adafruit Industries
 # SPDX-License-Identifier: MIT
 
 import time
@@ -6,184 +6,158 @@ import board
 from adafruit_motor import servo
 from adafruit_pca9685 import PCA9685
 
-class ServoController:
-    def __init__(self, pca_channel, servo_type="180", min_pulse=750, max_pulse=2250):
-        """
-        Inicializa el controlador de servo
-        
-        Args:
-            pca_channel: Canal del PCA9685 (0-15)
-            servo_type: Tipo de servo - "180", "270", "360" o "continuo"
-            min_pulse: Pulso mínimo en microsegundos
-            max_pulse: Pulso máximo en microsegundos
-        """
-        self.i2c = board.I2C()
-        self.pca = PCA9685(self.i2c)
-        self.pca.frequency = 50
-        
-        self.servo_type = servo_type
-        self.channel = pca_channel
-        self.home_position = 0  # Posición inicial/home
-        
-        # Configurar rangos según tipo de servo
-        if servo_type == "180":
-            self.max_angle = 180
-            self.servo_obj = servo.Servo(self.pca.channels[pca_channel], 
-                                       min_pulse=min_pulse, max_pulse=max_pulse)
-        elif servo_type == "270":
-            self.max_angle = 270
-            self.servo_obj = servo.Servo(self.pca.channels[pca_channel], 
-                                       min_pulse=min_pulse, max_pulse=max_pulse,
-                                       actuation_range=270)
-        elif servo_type == "360" or servo_type == "continuo":
-            self.max_angle = 360
-            self.servo_obj = servo.ContinuousServo(self.pca.channels[pca_channel])
-        
-        # Ir a posición inicial
-        self.go_to_home()
-    
-    def go_to_home(self):
-        """Mueve el servo a la posición inicial"""
-        if self.servo_type in ["180", "270"]:
-            self.servo_obj.angle = self.home_position
-            print(f"Servo en posición HOME: {self.home_position}°")
-        elif self.servo_type in ["360", "continuo"]:
-            self.servo_obj.throttle = 0.0
-            print("Servo continuo detenido")
-        time.sleep(0.5)
-    
-    def move_to_angle(self, angle):
-        """Mueve el servo a un ángulo específico"""
-        if self.servo_type in ["180", "270"]:
-            if 0 <= angle <= self.max_angle:
-                self.servo_obj.angle = angle
-                print(f"Moviendo servo a: {angle}°")
-                time.sleep(0.1)
-            else:
-                print(f"Ángulo fuera de rango. Máximo: {self.max_angle}°")
-        else:
-            print("Función no disponible para servos continuos")
-    
-    def sweep_movement(self, speed_delay=0.03):
-        """Ejecuta movimiento completo y regresa a HOME"""
-        print(f"Iniciando movimiento completo del servo {self.servo_type}°...")
-        
-        if self.servo_type in ["180", "270"]:
-            # Movimiento hacia adelante
-            for angle in range(0, self.max_angle + 1, 2):
-                self.servo_obj.angle = angle
-                time.sleep(speed_delay)
-            
-            print(f"Alcanzado máximo: {self.max_angle}°")
-            time.sleep(0.5)
-            
-            # Regreso a HOME
-            for angle in range(self.max_angle, self.home_position - 1, -2):
-                self.servo_obj.angle = angle
-                time.sleep(speed_delay)
-                
-            print("Regresado a posición HOME")
-            
-        elif self.servo_type in ["360", "continuo"]:
-            # Para servos continuos, rotar en una dirección por tiempo determinado
-            rotation_time = 2.0  # segundos
-            
-            print("Rotando en sentido horario...")
-            self.servo_obj.throttle = 1.0
-            time.sleep(rotation_time)
-            
-            print("Rotando en sentido antihorario...")
-            self.servo_obj.throttle = -1.0
-            time.sleep(rotation_time)
-            
-            print("Deteniendo servo...")
-            self.servo_obj.throttle = 0.0
-    
-    def detect_and_activate(self, sensor_input):
-        """
-        Función que se activa cuando se detecta algo
-        
-        Args:
-            sensor_input: Valor del sensor (True/False o "detectado")
-        """
-        if sensor_input == "detectado" or sensor_input == True:
-            print("¡DETECCIÓN ACTIVADA!")
-            self.sweep_movement()
-            return True
-        return False
-    
-    def manual_control(self):
-        """Control manual del servo"""
-        print(f"\n--- Control Manual Servo {self.servo_type}° ---")
-        print("Comandos disponibles:")
-        print("- 'home': Ir a posición inicial")
-        print("- 'sweep': Movimiento completo")
-        print("- 'detectado': Simular detección")
-        print("- ángulo (0-{}): Ir a ángulo específico".format(self.max_angle))
-        print("- 'salir': Terminar control")
-        
-        while True:
-            comando = input("\nIngresa comando: ").lower().strip()
-            
-            if comando == 'salir':
-                break
-            elif comando == 'home':
-                self.go_to_home()
-            elif comando == 'sweep':
-                self.sweep_movement()
-            elif comando == 'detectado':
-                self.detect_and_activate("detectado")
-            elif comando.isdigit():
-                angle = int(comando)
-                self.move_to_angle(angle)
-            else:
-                print("Comando no reconocido")
-    
-    def cleanup(self):
-        """Limpia recursos"""
-        self.go_to_home()
-        self.pca.deinit()
-        print("Recursos liberados")
+# CONFIGURACIÓN - Modifica estos valores según tu servo
+SERVO_DEGREES = 180  # Cambia por 270, 360, etc.
+PCA_CHANNEL = 7      # Canal del PCA9685
 
-# Ejemplo de uso
-if __name__ == "__main__":
-    # CONFIGURACIÓN - Modifica estos valores según tu servo
-    SERVO_TYPE = "180"  # Cambia por "180", "270", "360" o "continuo"
-    PCA_CHANNEL = 7     # Canal del PCA9685 (0-15)
+# Configuración I2C (igual que tu código original)
+i2c = board.I2C()  # uses board.SCL and board.SDA
+pca = PCA9685(i2c)
+pca.frequency = 50
+
+# Configuración del servo (igual que tu código original)
+servo7 = servo.Servo(pca.channels[PCA_CHANNEL])
+
+def go_to_home():
+    """Mueve el servo a posición inicial (0 grados)"""
+    servo7.angle = 0
+    print("Servo en posición HOME (0°)")
+    time.sleep(0.5)
+
+def detection_activated():
+    """
+    Función que se ejecuta cuando hay detección
+    Mueve el servo completamente según SERVO_DEGREES y regresa a HOME
+    """
+    print("¡DETECCIÓN ACTIVADA!")
+    print(f"Moviendo servo de 0° a {SERVO_DEGREES}°...")
     
-    # Crear controlador
-    print(f"Inicializando servo {SERVO_TYPE}° en canal {PCA_CHANNEL}")
-    controller = ServoController(PCA_CHANNEL, SERVO_TYPE)
+    # Movimiento hacia adelante (igual que tu código original)
+    for i in range(SERVO_DEGREES):
+        servo7.angle = i
+        time.sleep(0.03)
+    
+    print(f"Alcanzado máximo: {SERVO_DEGREES}°")
+    time.sleep(0.5)
+    
+    # Movimiento de regreso (igual que tu código original)  
+    print("Regresando a posición HOME...")
+    for i in range(SERVO_DEGREES):
+        servo7.angle = SERVO_DEGREES - i
+        time.sleep(0.03)
+    
+    print("Movimiento completo terminado")
+
+def move_to_angle(angle):
+    """Mueve el servo a un ángulo específico"""
+    if 0 <= angle <= SERVO_DEGREES:
+        servo7.angle = angle
+        print(f"Servo movido a: {angle}°")
+        time.sleep(0.1)
+    else:
+        print(f"Ángulo fuera de rango. Máximo: {SERVO_DEGREES}°")
+
+def fractional_movement():
+    """Movimiento fraccional (igual que tu código original)"""
+    print("Ejecutando movimiento fraccional...")
+    fraction = 0.0
+    while fraction < 1.0:
+        servo7.fraction = fraction
+        fraction += 0.01
+        time.sleep(0.03)
+    print("Movimiento fraccional completado")
+
+def test_original_code():
+    """Ejecuta exactamente tu código original"""
+    print("Ejecutando código original...")
+    
+    # Tu código original
+    for i in range(SERVO_DEGREES):
+        servo7.angle = i
+        time.sleep(0.03)
+    for i in range(SERVO_DEGREES):
+        servo7.angle = SERVO_DEGREES - i
+        time.sleep(0.03)
+
+    # Movimiento fraccional original
+    fraction = 0.0
+    while fraction < 1.0:
+        servo7.fraction = fraction
+        fraction += 0.01
+        time.sleep(0.03)
+
+def cleanup():
+    """Limpia recursos (igual que tu código original)"""
+    pca.deinit()
+    print("Recursos liberados")
+
+# Función principal para simular detección
+def check_detection():
+    """
+    Aquí conectarías tu sensor o lógica de detección
+    Por ahora simula la detección
+    """
+    # Simulación - reemplaza esto con tu lógica real
+    detection_signal = "detectado"  # Esto vendría de tu sensor
+    
+    if detection_signal == "detectado":
+        detection_activated()
+        return True
+    return False
+
+# Programa principal
+if __name__ == "__main__":
+    print(f"Servo de {SERVO_DEGREES}° inicializado en canal {PCA_CHANNEL}")
     
     try:
-        # Ejemplo de detección automática
-        print("\n--- Prueba de Detección Automática ---")
-        time.sleep(2)
+        # Ir a posición inicial
+        go_to_home()
         
-        # Simular detección
-        controller.detect_and_activate("detectado")
+        # Menú simple
+        print("\n--- CONTROL DE SERVO ---")
+        print("1. Presiona 'd' para simular detección")
+        print("2. Presiona 't' para ejecutar código original")
+        print("3. Presiona 'f' para movimiento fraccional")
+        print("4. Ingresa un número (0-{}) para ir a ese ángulo".format(SERVO_DEGREES))
+        print("5. Presiona 'q' para salir")
         
-        time.sleep(2)
-        
-        # Control manual
-        controller.manual_control()
-        
+        while True:
+            comando = input("\nComando: ").lower().strip()
+            
+            if comando == 'q':
+                break
+            elif comando == 'd':
+                # Simular detección
+                print("Simulando detección...")
+                detection_activated()
+            elif comando == 't':
+                test_original_code()
+            elif comando == 'f':
+                fractional_movement()
+            elif comando == 'h':
+                go_to_home()
+            elif comando.isdigit():
+                angle = int(comando)
+                move_to_angle(angle)
+            else:
+                print("Comando no reconocido")
+                
     except KeyboardInterrupt:
         print("\nInterrupción por teclado")
     finally:
-        controller.cleanup()
+        cleanup()
 
-# Ejemplo de uso con diferentes configuraciones:
+# Ejemplo de uso en tu código principal:
 """
-# Para servo de 180°:
-controller = ServoController(7, "180")
+# Para usar en tu proyecto principal:
 
-# Para servo de 270°:
-controller = ServoController(7, "270")
+# 1. Importa las funciones necesarias
+from motor_servo_control import detection_activated, go_to_home
 
-# Para servo continuo/360°:
-controller = ServoController(7, "360")
+# 2. En tu lógica principal, cuando detectes algo:
+if sensor_reading == "detectado":
+    detection_activated()
 
-# Con pulsos personalizados:
-controller = ServoController(7, "180", min_pulse=500, max_pulse=2500)
+# 3. Para volver a posición inicial:
+go_to_home()
 """
