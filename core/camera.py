@@ -1,15 +1,14 @@
-import cv2
 import numpy as np
 from picamera import PiCamera
-from picamera.array import PiRGBArray
+from PIL import Image, ImageDraw, ImageFont
 import time
-import threading
+import io
 from datetime import datetime
 
-class CameraDetector:
+class CameraDetectorLite:
     def __init__(self, resolution=(640, 480), framerate=30):
         """
-        Inicializa la cámara para detección de objetos
+        Detector ligero sin OpenCV
         
         Args:
             resolution: Tupla con resolución (width, height)
@@ -18,7 +17,6 @@ class CameraDetector:
         self.camera = PiCamera()
         self.camera.resolution = resolution
         self.camera.framerate = framerate
-        self.rawCapture = PiRGBArray(self.camera, size=resolution)
         
         # Variables para el procesamiento
         self.frame_count = 0
@@ -26,173 +24,304 @@ class CameraDetector:
         self.detection_callback = None
         
         # Parámetros de preprocesamiento para CNN
-        self.target_size = (224, 224)  # Tamaño común para CNNs
-        self.mean_subtraction = [123.68, 116.78, 103.94]  # ImageNet means
+        self.target_size = (224, 224)
         
         # Permitir que la cámara se caliente
         time.sleep(2)
+        print("Cámara inicializada correctamente")
+    
+    def capture_array(self):
+        """
+        Captura un frame como array numpy
+        
+        Returns:
+            numpy.ndarray: Frame RGB
+        """
+        stream = io.BytesIO()
+        self.camera.capture(stream, format='rgb')
+        stream.seek(0)
+        
+        # Convertir a array numpy
+        frame = np.frombuffer(stream.getvalue(), dtype=np.uint8)
+        frame = frame.reshape((self.camera.resolution[1], self.camera.resolution[0], 3))
+        
+        return frame
     
     def preprocess_frame(self, frame):
         """
-        Preprocesa el frame para CNN
+        Preprocesa el frame para CNN usando PIL
         
         Args:
-            frame: Frame de OpenCV (BGR)
+            frame: Frame numpy array (RGB)
             
         Returns:
             numpy.ndarray: Frame preprocesado
         """
-        # Convertir BGR a RGB (para CNN)
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # Convertir numpy array a PIL Image
+        pil_image = Image.fromarray(frame)
         
-        # Redimensionar al tamaño objetivo
-        resized = cv2.resize(frame_rgb, self.target_size)
+        # Redimensionar
+        resized = pil_image.resize(self.target_size, Image.LANCZOS)
         
-        # Normalizar valores de pixel (0-255 a 0-1)
-        normalized = resized.astype(np.float32) / 255.0
+        # Convertir de vuelta a numpy
+        resized_array = np.array(resized)
         
-        # Sustracción de media (opcional, depende del modelo)
-        # normalized = normalized - np.array(self.mean_subtraction) / 255.0
+        # Normalizar (0-255 a 0-1)
+        normalized = resized_array.astype(np.float32) / 255.0
         
-        # Expandir dimensiones para batch (1, height, width, channels)
+        # Expandir dimensiones para batch
         batch_frame = np.expand_dims(normalized, axis=0)
         
         return batch_frame
     
-    def detect_objects_placeholder(self, preprocessed_frame):
+    def simple_motion_detection(self, frame1, frame2, threshold=30):
         """
-        Función placeholder para detección de objetos
-        Aquí irá tu modelo CNN entrenado
+        Detección simple de movimiento sin OpenCV
         
         Args:
-            preprocessed_frame: Frame preprocesado
+            frame1: Frame anterior
+            frame2: Frame actual
+            threshold: Umbral de diferencia
             
         Returns:
-            list: Lista de detecciones [x, y, w, h, confidence, class]
+            list: Lista de regiones con movimiento
         """
-        # PLACEHOLDER: Aquí cargarías y usarías tu modelo CNN
-        # Ejemplo con TensorFlow/Keras:
-        # predictions = self.model.predict(preprocessed_frame)
-        # detections = self.process_predictions(predictions)
+        if frame1 is None:
+            return []
         
-        # Por ahora, detección simple de contornos como ejemplo
-        frame_bgr = cv2.cvtColor(preprocessed_frame[0], cv2.COLOR_RGB2BGR)
-        frame_uint8 = (frame_bgr * 255).astype(np.uint8)
+        # Convertir a escala de grises (promedio RGB)
+        gray1 = np.mean(frame1, axis=2)
+        gray2 = np.mean(frame2, axis=2)
         
-        gray = cv2.cvtColor(frame_uint8, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
+        # Calcular diferencia
+        diff = np.abs(gray2 - gray1)
         
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # Encontrar píxeles que superan el umbral
+        motion_mask = diff > threshold
         
+        # Encontrar regiones de movimiento (simplificado)
         detections = []
-        for contour in contours:
-            if cv2.contourArea(contour) > 500:  # Filtrar contornos pequeños
-                x, y, w, h = cv2.boundingRect(contour)
-                # Escalar coordenadas de vuelta al tamaño original
-                confidence = 0.8  # Placeholder
-                class_id = 0  # Placeholder
-                detections.append([x, y, w, h, confidence, class_id])
+        h, w = motion_mask.shape
+        
+        # Dividir imagen en bloques y detectar movimiento
+        block_size = 40
+        for y in range(0, h - block_size, block_size):
+            for x in range(0, w - block_size, block_size):
+                block = motion_mask[y:y+block_size, x:x+block_size]
+                motion_ratio = np.sum(block) / (block_size * block_size)
+                
+                if motion_ratio > 0.3:  # Si más del 30% del bloque tiene movimiento
+                    detections.append([x, y, block_size, block_size, motion_ratio, 0])
         
         return detections
     
-    def draw_detections(self, frame, detections):
+    def color_detection(self, frame, color_range=None):
         """
-        Dibuja las detecciones en el frame
+        Detección simple por color
         
         Args:
-            frame: Frame original
+            frame: Frame RGB
+            color_range: Diccionario con rangos de color
+            
+        Returns:
+            list: Lista de detecciones por color
+        """
+        if color_range is None:
+            # Ejemplo: detectar objetos rojos
+            color_range = {
+                'r_min': 100, 'r_max': 255,
+                'g_min': 0, 'g_max': 100,
+                'b_min': 0, 'b_max': 100
+            }
+        
+        # Crear máscara de color
+        mask = (
+            (frame[:, :, 0] >= color_range['r_min']) & 
+            (frame[:, :, 0] <= color_range['r_max']) &
+            (frame[:, :, 1] >= color_range['g_min']) & 
+            (frame[:, :, 1] <= color_range['g_max']) &
+            (frame[:, :, 2] >= color_range['b_min']) & 
+            (frame[:, :, 2] <= color_range['b_max'])
+        )
+        
+        # Encontrar regiones con el color objetivo
+        detections = []
+        h, w = mask.shape
+        block_size = 30
+        
+        for y in range(0, h - block_size, block_size):
+            for x in range(0, w - block_size, block_size):
+                block = mask[y:y+block_size, x:x+block_size]
+                color_ratio = np.sum(block) / (block_size * block_size)
+                
+                if color_ratio > 0.4:  # Si más del 40% del bloque tiene el color
+                    detections.append([x, y, block_size, block_size, color_ratio, 1])
+        
+        return detections
+    
+    def detect_objects_placeholder(self, preprocessed_frame, original_frame):
+        """
+        Función placeholder para detección
+        Combina detección de movimiento y color
+        
+        Args:
+            preprocessed_frame: Frame preprocesado para CNN
+            original_frame: Frame original
+            
+        Returns:
+            list: Lista de detecciones
+        """
+        detections = []
+        
+        # Detección de movimiento (necesita frame anterior)
+        if hasattr(self, 'previous_frame'):
+            motion_detections = self.simple_motion_detection(
+                self.previous_frame, original_frame
+            )
+            detections.extend(motion_detections)
+        
+        # Detección por color
+        color_detections = self.color_detection(original_frame)
+        detections.extend(color_detections)
+        
+        # Guardar frame actual para próxima iteración
+        self.previous_frame = original_frame.copy()
+        
+        return detections
+    
+    def draw_detections_pil(self, frame, detections):
+        """
+        Dibuja detecciones usando PIL
+        
+        Args:
+            frame: Frame numpy array
             detections: Lista de detecciones
             
         Returns:
-            numpy.ndarray: Frame con detecciones dibujadas
+            PIL.Image: Imagen con detecciones
         """
-        for detection in detections:
+        # Convertir a PIL Image
+        pil_image = Image.fromarray(frame)
+        draw = ImageDraw.Draw(pil_image)
+        
+        # Intentar cargar fuente, usar default si no está disponible
+        try:
+            font = ImageFont.load_default()
+        except:
+            font = None
+        
+        colors = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0)]
+        
+        for i, detection in enumerate(detections):
             x, y, w, h, confidence, class_id = detection
             
+            # Color basado en clase
+            color = colors[class_id % len(colors)]
+            
             # Dibujar rectángulo
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            draw.rectangle([x, y, x + w, y + h], outline=color, width=2)
             
             # Dibujar texto
-            label = f"Object {class_id}: {confidence:.2f}"
-            cv2.putText(frame, label, (x, y - 10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            label = f"Obj {class_id}: {confidence:.2f}"
+            if font:
+                draw.text((x, y - 15), label, fill=color, font=font)
+            else:
+                draw.text((x, y - 15), label, fill=color)
         
-        return frame
+        return pil_image
     
-    def capture_and_detect(self, save_detections=False):
+    def capture_and_detect_continuous(self, save_detections=False):
         """
-        Captura frames y realiza detección en tiempo real
+        Captura y detección continua
         
         Args:
-            save_detections: Si guardar frames con detecciones
+            save_detections: Si guardar imágenes con detecciones
         """
-        print("Iniciando captura y detección...")
+        print("Iniciando captura continua...")
         self.is_running = True
         
         try:
-            for frame in self.camera.capture_continuous(self.rawCapture, 
-                                                       format="bgr", 
-                                                       use_video_port=True):
-                if not self.is_running:
-                    break
-                
-                # Obtener frame actual
-                current_frame = frame.array
+            while self.is_running:
+                # Capturar frame
+                frame = self.capture_array()
                 self.frame_count += 1
                 
                 # Preprocesar para CNN
-                preprocessed = self.preprocess_frame(current_frame)
+                preprocessed = self.preprocess_frame(frame)
                 
                 # Detectar objetos
-                detections = self.detect_objects_placeholder(preprocessed)
+                detections = self.detect_objects_placeholder(preprocessed, frame)
                 
-                # Dibujar detecciones
-                frame_with_detections = self.draw_detections(current_frame.copy(), detections)
+                # Mostrar información
+                if detections:
+                    print(f"Frame {self.frame_count}: {len(detections)} objetos detectados")
+                    
+                    # Dibujar detecciones
+                    image_with_detections = self.draw_detections_pil(frame, detections)
+                    
+                    # Guardar si se especifica
+                    if save_detections:
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        image_with_detections.save(f"detection_{timestamp}.jpg")
                 
-                # Mostrar frame
-                cv2.imshow("Detección de Objetos - Raspberry Pi", frame_with_detections)
-                
-                # Guardar si se especifica
-                if save_detections and detections:
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    cv2.imwrite(f"detection_{timestamp}.jpg", frame_with_detections)
-                
-                # Callback personalizado (opcional)
+                # Callback personalizado
                 if self.detection_callback:
-                    self.detection_callback(detections, current_frame)
+                    self.detection_callback(detections, frame)
                 
-                # Limpiar stream para próxima captura
-                self.rawCapture.truncate(0)
+                # Pausa pequeña para no sobrecargar
+                time.sleep(0.1)
                 
-                # Salir con 'q'
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
-                
-        except Exception as e:
-            print(f"Error durante la captura: {e}")
+        except KeyboardInterrupt:
+            print("\nDeteniendo captura...")
         finally:
             self.cleanup()
     
-    def capture_single_frame(self):
+    def capture_single_detection(self):
         """
-        Captura un solo frame y retorna detecciones
+        Captura un solo frame y detecta
         
         Returns:
             tuple: (frame, detections, preprocessed_frame)
         """
-        self.rawCapture.truncate(0)
-        self.camera.capture(self.rawCapture, format="bgr")
-        
-        frame = self.rawCapture.array
+        frame = self.capture_array()
         preprocessed = self.preprocess_frame(frame)
-        detections = self.detect_objects_placeholder(preprocessed)
+        detections = self.detect_objects_placeholder(preprocessed, frame)
         
         return frame, detections, preprocessed
     
+    def save_training_data(self, num_samples=100, folder="training_data"):
+        """
+        Captura imágenes para entrenar CNN
+        
+        Args:
+            num_samples: Número de imágenes a capturar
+            folder: Carpeta donde guardar
+        """
+        import os
+        os.makedirs(folder, exist_ok=True)
+        
+        print(f"Capturando {num_samples} imágenes para entrenamiento...")
+        
+        for i in range(num_samples):
+            frame = self.capture_array()
+            
+            # Guardar frame original
+            pil_image = Image.fromarray(frame)
+            pil_image.save(f"{folder}/sample_{i:04d}.jpg")
+            
+            # Guardar versión preprocesada
+            preprocessed = self.preprocess_frame(frame)
+            prep_image = Image.fromarray((preprocessed[0] * 255).astype(np.uint8))
+            prep_image.save(f"{folder}/preprocessed_{i:04d}.jpg")
+            
+            print(f"Capturada imagen {i+1}/{num_samples}")
+            time.sleep(0.5)
+        
+        print(f"Datos de entrenamiento guardados en {folder}/")
+    
     def set_detection_callback(self, callback_function):
         """
-        Establece una función callback para procesar detecciones
+        Establece callback para procesar detecciones
         
         Args:
             callback_function: Función que recibe (detections, frame)
@@ -201,21 +330,13 @@ class CameraDetector:
     
     def load_cnn_model(self, model_path):
         """
-        Carga un modelo CNN entrenado
+        Placeholder para cargar modelo CNN
         
         Args:
             model_path: Ruta al modelo
         """
-        # Implementar carga del modelo según framework usado
-        # TensorFlow/Keras:
-        # import tensorflow as tf
-        # self.model = tf.keras.models.load_model(model_path)
-        
-        # PyTorch:
-        # import torch
-        # self.model = torch.load(model_path)
-        
-        print(f"Modelo CNN cargado desde: {model_path}")
+        print(f"Listo para cargar modelo desde: {model_path}")
+        # Aquí cargarías tu modelo cuando esté listo
     
     def stop_capture(self):
         """Detiene la captura"""
@@ -223,36 +344,47 @@ class CameraDetector:
     
     def cleanup(self):
         """Limpia recursos"""
-        cv2.destroyAllWindows()
         self.camera.close()
-        print("Recursos liberados")
+        print("Cámara cerrada correctamente")
 
 # Ejemplo de uso
 def main():
-    # Crear detector
-    detector = CameraDetector(resolution=(640, 480), framerate=30)
+    # Crear detector ligero
+    detector = CameraDetectorLite(resolution=(640, 480))
     
     # Función callback de ejemplo
     def detection_callback(detections, frame):
         if detections:
-            print(f"Detectados {len(detections)} objetos")
             for i, det in enumerate(detections):
                 x, y, w, h, conf, cls = det
-                print(f"  Objeto {i}: pos=({x},{y}), size=({w},{h}), conf={conf:.2f}")
+                print(f"  Detección {i}: pos=({x},{y}), confianza={conf:.2f}")
     
     # Configurar callback
     detector.set_detection_callback(detection_callback)
     
-    # Opción 1: Captura continua
-    try:
-        detector.capture_and_detect(save_detections=True)
-    except KeyboardInterrupt:
-        print("\nDeteniendo captura...")
-        detector.stop_capture()
+    print("Opciones disponibles:")
+    print("1. Captura continua con detección")
+    print("2. Captura única")
+    print("3. Generar datos de entrenamiento")
     
-    # Opción 2: Captura única
-    # frame, detections, preprocessed = detector.capture_single_frame()
-    # print(f"Capturado frame con {len(detections)} detecciones")
+    opcion = input("Selecciona opción (1-3): ")
+    
+    if opcion == "1":
+        detector.capture_and_detect_continuous(save_detections=True)
+    elif opcion == "2":
+        frame, detections, preprocessed = detector.capture_single_detection()
+        print(f"Detectados {len(detections)} objetos")
+        
+        # Mostrar detecciones
+        if detections:
+            image_with_detections = detector.draw_detections_pil(frame, detections)
+            image_with_detections.save("single_detection.jpg")
+            print("Imagen guardada como single_detection.jpg")
+    elif opcion == "3":
+        num_samples = int(input("¿Cuántas imágenes capturar? (default 50): ") or "50")
+        detector.save_training_data(num_samples)
+    
+    detector.cleanup()
 
 if __name__ == "__main__":
     main()
