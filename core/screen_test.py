@@ -1,23 +1,23 @@
-import xpt2046_circuitpython
-import time
+from xpt2046 import Touch
+from gpiozero import Button, DigitalOutputDevice
+import board
 import busio
-import digitalio
-from board import SCK, MOSI, MISO, D24, D22
+from time import sleep
 
-# Pin config
-T_CS_PIN = D24
-T_IRQ_PIN = D22
+# touch callback
+def touchscreen_press(x, y):
+    print(x,y)
 
-# Set up SPI bus using hardware SPI
-spi = busio.SPI(clock=SCK, MOSI=MOSI, MISO=MISO)
-# Create touch controller
-touch = xpt2046.Touch(
-    spi, 
-    cs = digitalio.DigitalInOut(T_CS_PIN),
-    interrupt = digitalio.DigitalInOut(T_IRQ_PIN)
-)
+cs = DigitalOutputDevice(17)
+clk = board.SCLK_1		# same as writing 21
+mosi = board.MOSI_1	# same as writing 20
+miso = board.MISO_1	# same as writing 19
+irq = Button(26)
 
-# Check if we have an interrupt signal
-if touch.is_pressed():
-    # Get the coordinates for this touch
-    print(touch.get_coordinates())
+spi = busio.SPI(clk, mosi, miso)	# auxiliary SPI
+
+xpt = Touch(spi, cs=cs, int_pin=irq, int_handler=touchscreen_press)
+
+while True:
+    #print(xpt.get_touch()) # to get the (x, y) coords when you desire
+    sleep(.01)
