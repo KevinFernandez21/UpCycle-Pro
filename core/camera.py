@@ -1,55 +1,155 @@
+import subprocess
 import numpy as np
-from picamera import PiCamera
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 import time
-import io
+import os
 from datetime import datetime
 
-class CameraDetectorLite:
-    def __init__(self, resolution=(640, 480), framerate=30):
+class CameraDetectorCompatible:
+    def __init__(self, resolution=(640, 480)):
         """
-        Detector ligero sin OpenCV
+        Detector compatible usando subprocess para captura
         
         Args:
             resolution: Tupla con resolución (width, height)
-            framerate: FPS de captura
         """
-        self.camera = PiCamera()
-        self.camera.resolution = resolution
-        self.camera.framerate = framerate
+        self.resolution = resolution
+        self.width, self.height = resolution
         
         # Variables para el procesamiento
         self.frame_count = 0
         self.is_running = False
         self.detection_callback = None
-        
-        # Parámetros de preprocesamiento para CNN
         self.target_size = (224, 224)
         
-        # Permitir que la cámara se caliente
-        time.sleep(2)
-        print("Cámara inicializada correctamente")
+        # Verificar que los comandos de cámara están disponibles
+        self.camera_command = self._detect_camera_command()
+        print(f"Usando comando de cámara: {self.camera_command}")
     
-    def capture_array(self):
+    def _detect_camera_command(self):
+        """Detecta qué comando de cámara está disponible"""
+        commands = [
+            "libcamera-still",
+            "raspistill", 
+            "fswebcam"
+        ]
+        
+        for cmd in commands:
+            try:
+                result = subprocess.run([cmd, "--help"], 
+                                      capture_output=True, 
+                                      text=True, 
+                                      timeout=5)
+                if result.returncode == 0 or "usage" in result.stderr.lower():
+                    return cmd
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                continue
+        
+        raise Exception("No se encontró ningún comando de cámara compatible")
+    
+    def capture_image_file(self, filename="temp_capture.jpg"):
         """
-        Captura un frame como array numpy
+        Captura una imagen usando subprocess
+        
+        Args:
+            filename: Nombre del archivo temporal
+            
+        Returns:
+            bool: True si la captura fue exitosa
+        """
+        try:
+            if self.camera_command == "libcamera-still":
+                cmd = [
+                    "libcamera-still",
+                    "-o", filename,
+                    "--width", str(self.width),
+                    "--height", str(self.height),
+                    "--timeout", "1000",
+                    "--immediate"
+                ]
+            elif self.camera_command == "raspistill":
+                cmd = [
+                    "raspistill",
+                    "-o", filename,
+                    "-w", str(self.width),
+                    "-h", str(self.height),
+                    "-t", "1000",
+                    "-q", "80"
+                ]
+            else:  # fswebcam
+                cmd = [
+                    "fswebcam",
+                    "-r", f"{self.width}x{self.height}",
+                    "--no-banner",
+                    filename
+                ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0 and os.path.exists(filename):
+                return True
+            else:
+                print(f"Error en captura: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            print(f"Error ejecutando comando de cámara: {e}")
+            return False
+    
+    def load_image_as_array(self, filename):
+        """
+        Carga imagen como array numpy
+        
+        Args:
+            filename: Nombre del archivo
+            
+        Returns:
+            numpy.ndarray: Imagen como array RGB
+        """
+        try:
+            pil_image = Image.open(filename)
+            # Convertir a RGB si es necesario
+            if pil_image.mode != 'RGB':
+                pil_image = pil_image.convert('RGB')
+            
+            # Convertir a array numpy
+            frame = np.array(pil_image)
+            return frame
+            
+        except Exception as e:
+            print(f"Error cargando imagen: {e}")
+            return None
+    
+    def capture_frame(self):
+        """
+        Captura un frame completo
         
         Returns:
-            numpy.ndarray: Frame RGB
+            numpy.ndarray: Frame como array RGB o None si falla
         """
-        stream = io.BytesIO()
-        self.camera.capture(stream, format='rgb')
-        stream.seek(0)
+        temp_file = f"temp_frame_{int(time.time())}.jpg"
         
-        # Convertir a array numpy
-        frame = np.frombuffer(stream.getvalue(), dtype=np.uint8)
-        frame = frame.reshape((self.camera.resolution[1], self.camera.resolution[0], 3))
-        
-        return frame
+        try:
+            # Capturar imagen
+            if self.capture_image_file(temp_file):
+                # Cargar como array
+                frame = self.load_image_as_array(temp_file)
+                # Limpiar archivo temporal
+                os.remove(temp_file)
+                return frame
+            else:
+                return None
+                
+        except Exception as e:
+            print(f"Error en captura de frame: {e}")
+            # Limpiar archivo temporal si existe
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+            return None
     
     def preprocess_frame(self, frame):
         """
-        Preprocesa el frame para CNN usando PIL
+        Preprocesa frame para CNN
         
         Args:
             frame: Frame numpy array (RGB)
@@ -57,16 +157,15 @@ class CameraDetectorLite:
         Returns:
             numpy.ndarray: Frame preprocesado
         """
-        # Convertir numpy array a PIL Image
-        pil_image = Image.fromarray(frame)
+        if frame is None:
+            return None
         
-        # Redimensionar
+        # Convertir a PIL para redimensionar
+        pil_image = Image.fromarray(frame)
         resized = pil_image.resize(self.target_size, Image.LANCZOS)
         
-        # Convertir de vuelta a numpy
+        # Convertir a array y normalizar
         resized_array = np.array(resized)
-        
-        # Normalizar (0-255 a 0-1)
         normalized = resized_array.astype(np.float32) / 255.0
         
         # Expandir dimensiones para batch
@@ -74,118 +173,54 @@ class CameraDetectorLite:
         
         return batch_frame
     
-    def simple_motion_detection(self, frame1, frame2, threshold=30):
+    def simple_brightness_detection(self, frame, threshold=100):
         """
-        Detección simple de movimiento sin OpenCV
-        
-        Args:
-            frame1: Frame anterior
-            frame2: Frame actual
-            threshold: Umbral de diferencia
-            
-        Returns:
-            list: Lista de regiones con movimiento
-        """
-        if frame1 is None:
-            return []
-        
-        # Convertir a escala de grises (promedio RGB)
-        gray1 = np.mean(frame1, axis=2)
-        gray2 = np.mean(frame2, axis=2)
-        
-        # Calcular diferencia
-        diff = np.abs(gray2 - gray1)
-        
-        # Encontrar píxeles que superan el umbral
-        motion_mask = diff > threshold
-        
-        # Encontrar regiones de movimiento (simplificado)
-        detections = []
-        h, w = motion_mask.shape
-        
-        # Dividir imagen en bloques y detectar movimiento
-        block_size = 40
-        for y in range(0, h - block_size, block_size):
-            for x in range(0, w - block_size, block_size):
-                block = motion_mask[y:y+block_size, x:x+block_size]
-                motion_ratio = np.sum(block) / (block_size * block_size)
-                
-                if motion_ratio > 0.3:  # Si más del 30% del bloque tiene movimiento
-                    detections.append([x, y, block_size, block_size, motion_ratio, 0])
-        
-        return detections
-    
-    def color_detection(self, frame, color_range=None):
-        """
-        Detección simple por color
+        Detección simple basada en brillo
         
         Args:
             frame: Frame RGB
-            color_range: Diccionario con rangos de color
+            threshold: Umbral de brillo
             
         Returns:
-            list: Lista de detecciones por color
+            list: Lista de detecciones
         """
-        if color_range is None:
-            # Ejemplo: detectar objetos rojos
-            color_range = {
-                'r_min': 100, 'r_max': 255,
-                'g_min': 0, 'g_max': 100,
-                'b_min': 0, 'b_max': 100
-            }
+        if frame is None:
+            return []
         
-        # Crear máscara de color
-        mask = (
-            (frame[:, :, 0] >= color_range['r_min']) & 
-            (frame[:, :, 0] <= color_range['r_max']) &
-            (frame[:, :, 1] >= color_range['g_min']) & 
-            (frame[:, :, 1] <= color_range['g_max']) &
-            (frame[:, :, 2] >= color_range['b_min']) & 
-            (frame[:, :, 2] <= color_range['b_max'])
-        )
+        # Convertir a escala de grises
+        gray = np.mean(frame, axis=2)
         
-        # Encontrar regiones con el color objetivo
+        # Encontrar regiones brillantes
+        bright_mask = gray > threshold
+        
+        # Encontrar regiones conectadas (simplificado)
         detections = []
-        h, w = mask.shape
-        block_size = 30
+        h, w = bright_mask.shape
+        block_size = 50
         
         for y in range(0, h - block_size, block_size):
             for x in range(0, w - block_size, block_size):
-                block = mask[y:y+block_size, x:x+block_size]
-                color_ratio = np.sum(block) / (block_size * block_size)
+                block = bright_mask[y:y+block_size, x:x+block_size]
+                bright_ratio = np.sum(block) / (block_size * block_size)
                 
-                if color_ratio > 0.4:  # Si más del 40% del bloque tiene el color
-                    detections.append([x, y, block_size, block_size, color_ratio, 1])
+                if bright_ratio > 0.3:  # Si más del 30% es brillante
+                    detections.append([x, y, block_size, block_size, bright_ratio, 0])
         
         return detections
     
     def detect_objects_placeholder(self, preprocessed_frame, original_frame):
         """
         Función placeholder para detección
-        Combina detección de movimiento y color
         
         Args:
-            preprocessed_frame: Frame preprocesado para CNN
+            preprocessed_frame: Frame preprocesado
             original_frame: Frame original
             
         Returns:
             list: Lista de detecciones
         """
-        detections = []
-        
-        # Detección de movimiento (necesita frame anterior)
-        if hasattr(self, 'previous_frame'):
-            motion_detections = self.simple_motion_detection(
-                self.previous_frame, original_frame
-            )
-            detections.extend(motion_detections)
-        
-        # Detección por color
-        color_detections = self.color_detection(original_frame)
-        detections.extend(color_detections)
-        
-        # Guardar frame actual para próxima iteración
-        self.previous_frame = original_frame.copy()
+        # Detección simple por brillo
+        detections = self.simple_brightness_detection(original_frame)
         
         return detections
     
@@ -200,191 +235,202 @@ class CameraDetectorLite:
         Returns:
             PIL.Image: Imagen con detecciones
         """
-        # Convertir a PIL Image
+        if frame is None:
+            return None
+        
         pil_image = Image.fromarray(frame)
-        draw = ImageDraw.Draw(pil_image)
         
-        # Intentar cargar fuente, usar default si no está disponible
-        try:
-            font = ImageFont.load_default()
-        except:
-            font = None
-        
-        colors = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0)]
-        
-        for i, detection in enumerate(detections):
-            x, y, w, h, confidence, class_id = detection
+        if detections:
+            from PIL import ImageDraw, ImageFont
+            draw = ImageDraw.Draw(pil_image)
             
-            # Color basado en clase
-            color = colors[class_id % len(colors)]
+            try:
+                font = ImageFont.load_default()
+            except:
+                font = None
             
-            # Dibujar rectángulo
-            draw.rectangle([x, y, x + w, y + h], outline=color, width=2)
-            
-            # Dibujar texto
-            label = f"Obj {class_id}: {confidence:.2f}"
-            if font:
-                draw.text((x, y - 15), label, fill=color, font=font)
-            else:
-                draw.text((x, y - 15), label, fill=color)
+            for detection in detections:
+                x, y, w, h, confidence, class_id = detection
+                
+                # Dibujar rectángulo
+                draw.rectangle([x, y, x + w, y + h], outline=(0, 255, 0), width=2)
+                
+                # Dibujar texto
+                label = f"Obj: {confidence:.2f}"
+                draw.text((x, y - 15), label, fill=(0, 255, 0), font=font)
         
         return pil_image
     
-    def capture_and_detect_continuous(self, save_detections=False):
+    def capture_and_detect_interval(self, interval=2, max_captures=50, save_detections=True):
         """
-        Captura y detección continua
+        Captura y detecta con intervalos (más estable)
         
         Args:
-            save_detections: Si guardar imágenes con detecciones
+            interval: Segundos entre capturas
+            max_captures: Máximo número de capturas
+            save_detections: Si guardar detecciones
         """
-        print("Iniciando captura continua...")
+        print(f"Iniciando captura cada {interval} segundos...")
+        print(f"Máximo {max_captures} capturas")
+        
         self.is_running = True
+        captures_done = 0
         
         try:
-            while self.is_running:
+            while self.is_running and captures_done < max_captures:
+                print(f"Captura {captures_done + 1}/{max_captures}")
+                
                 # Capturar frame
-                frame = self.capture_array()
-                self.frame_count += 1
+                frame = self.capture_frame()
                 
-                # Preprocesar para CNN
-                preprocessed = self.preprocess_frame(frame)
-                
-                # Detectar objetos
-                detections = self.detect_objects_placeholder(preprocessed, frame)
-                
-                # Mostrar información
-                if detections:
-                    print(f"Frame {self.frame_count}: {len(detections)} objetos detectados")
+                if frame is not None:
+                    self.frame_count += 1
                     
-                    # Dibujar detecciones
-                    image_with_detections = self.draw_detections_pil(frame, detections)
+                    # Preprocesar
+                    preprocessed = self.preprocess_frame(frame)
                     
-                    # Guardar si se especifica
-                    if save_detections:
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        image_with_detections.save(f"detection_{timestamp}.jpg")
+                    # Detectar
+                    detections = self.detect_objects_placeholder(preprocessed, frame)
+                    
+                    if detections:
+                        print(f"  Detectados {len(detections)} objetos")
+                        
+                        # Dibujar detecciones
+                        image_with_detections = self.draw_detections_pil(frame, detections)
+                        
+                        # Guardar
+                        if save_detections and image_with_detections:
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            filename = f"detection_{timestamp}.jpg"
+                            image_with_detections.save(filename)
+                            print(f"  Guardado: {filename}")
+                    else:
+                        print("  No se detectaron objetos")
+                    
+                    # Callback personalizado
+                    if self.detection_callback:
+                        self.detection_callback(detections, frame)
+                else:
+                    print("  Error en captura")
                 
-                # Callback personalizado
-                if self.detection_callback:
-                    self.detection_callback(detections, frame)
+                captures_done += 1
                 
-                # Pausa pequeña para no sobrecargar
-                time.sleep(0.1)
+                # Esperar intervalo
+                if captures_done < max_captures:
+                    print(f"  Esperando {interval} segundos...")
+                    time.sleep(interval)
                 
         except KeyboardInterrupt:
-            print("\nDeteniendo captura...")
+            print("\nCaptura interrumpida por usuario")
+        except Exception as e:
+            print(f"Error durante captura: {e}")
         finally:
-            self.cleanup()
+            self.is_running = False
+            print("Captura terminada")
     
     def capture_single_detection(self):
         """
-        Captura un solo frame y detecta
+        Captura única con detección
         
         Returns:
             tuple: (frame, detections, preprocessed_frame)
         """
-        frame = self.capture_array()
+        print("Capturando imagen...")
+        
+        frame = self.capture_frame()
+        if frame is None:
+            return None, [], None
+        
         preprocessed = self.preprocess_frame(frame)
         detections = self.detect_objects_placeholder(preprocessed, frame)
         
         return frame, detections, preprocessed
     
-    def save_training_data(self, num_samples=100, folder="training_data"):
+    def test_camera(self):
         """
-        Captura imágenes para entrenar CNN
+        Prueba básica de la cámara
         
-        Args:
-            num_samples: Número de imágenes a capturar
-            folder: Carpeta donde guardar
+        Returns:
+            bool: True si la cámara funciona
         """
-        import os
-        os.makedirs(folder, exist_ok=True)
+        print("Probando cámara...")
         
-        print(f"Capturando {num_samples} imágenes para entrenamiento...")
+        success = self.capture_image_file("test_camera.jpg")
         
-        for i in range(num_samples):
-            frame = self.capture_array()
-            
-            # Guardar frame original
-            pil_image = Image.fromarray(frame)
-            pil_image.save(f"{folder}/sample_{i:04d}.jpg")
-            
-            # Guardar versión preprocesada
-            preprocessed = self.preprocess_frame(frame)
-            prep_image = Image.fromarray((preprocessed[0] * 255).astype(np.uint8))
-            prep_image.save(f"{folder}/preprocessed_{i:04d}.jpg")
-            
-            print(f"Capturada imagen {i+1}/{num_samples}")
-            time.sleep(0.5)
-        
-        print(f"Datos de entrenamiento guardados en {folder}/")
+        if success:
+            print("✓ Cámara funcionando correctamente")
+            print("✓ Imagen de prueba guardada como test_camera.jpg")
+            return True
+        else:
+            print("✗ Error: No se pudo capturar imagen")
+            return False
     
     def set_detection_callback(self, callback_function):
-        """
-        Establece callback para procesar detecciones
-        
-        Args:
-            callback_function: Función que recibe (detections, frame)
-        """
+        """Establecer callback para detecciones"""
         self.detection_callback = callback_function
     
-    def load_cnn_model(self, model_path):
-        """
-        Placeholder para cargar modelo CNN
-        
-        Args:
-            model_path: Ruta al modelo
-        """
-        print(f"Listo para cargar modelo desde: {model_path}")
-        # Aquí cargarías tu modelo cuando esté listo
-    
     def stop_capture(self):
-        """Detiene la captura"""
+        """Detener captura"""
         self.is_running = False
     
     def cleanup(self):
-        """Limpia recursos"""
-        self.camera.close()
-        print("Cámara cerrada correctamente")
+        """Limpiar recursos"""
+        print("Limpieza completada")
 
 # Ejemplo de uso
 def main():
-    # Crear detector ligero
-    detector = CameraDetectorLite(resolution=(640, 480))
-    
-    # Función callback de ejemplo
-    def detection_callback(detections, frame):
-        if detections:
-            for i, det in enumerate(detections):
-                x, y, w, h, conf, cls = det
-                print(f"  Detección {i}: pos=({x},{y}), confianza={conf:.2f}")
-    
-    # Configurar callback
-    detector.set_detection_callback(detection_callback)
-    
-    print("Opciones disponibles:")
-    print("1. Captura continua con detección")
-    print("2. Captura única")
-    print("3. Generar datos de entrenamiento")
-    
-    opcion = input("Selecciona opción (1-3): ")
-    
-    if opcion == "1":
-        detector.capture_and_detect_continuous(save_detections=True)
-    elif opcion == "2":
-        frame, detections, preprocessed = detector.capture_single_detection()
-        print(f"Detectados {len(detections)} objetos")
+    try:
+        # Crear detector compatible
+        detector = CameraDetectorCompatible(resolution=(640, 480))
         
-        # Mostrar detecciones
-        if detections:
-            image_with_detections = detector.draw_detections_pil(frame, detections)
-            image_with_detections.save("single_detection.jpg")
-            print("Imagen guardada como single_detection.jpg")
-    elif opcion == "3":
-        num_samples = int(input("¿Cuántas imágenes capturar? (default 50): ") or "50")
-        detector.save_training_data(num_samples)
-    
-    detector.cleanup()
+        # Probar cámara primero
+        if not detector.test_camera():
+            print("La cámara no funciona. Verifica la conexión y configuración.")
+            return
+        
+        # Callback de ejemplo
+        def detection_callback(detections, frame):
+            if detections:
+                print(f"Callback: {len(detections)} objetos detectados")
+        
+        detector.set_detection_callback(detection_callback)
+        
+        print("\nOpciones disponibles:")
+        print("1. Captura única")
+        print("2. Captura con intervalos")
+        print("3. Solo probar cámara")
+        
+        opcion = input("Selecciona opción (1-3): ")
+        
+        if opcion == "1":
+            frame, detections, preprocessed = detector.capture_single_detection()
+            if frame is not None:
+                print(f"Detectados {len(detections)} objetos")
+                
+                if detections:
+                    image_with_detections = detector.draw_detections_pil(frame, detections)
+                    image_with_detections.save("single_detection.jpg")
+                    print("Resultado guardado como single_detection.jpg")
+            else:
+                print("Error en captura")
+        
+        elif opcion == "2":
+            interval = float(input("Intervalo entre capturas (segundos, default 3): ") or "3")
+            max_captures = int(input("Número máximo de capturas (default 10): ") or "10")
+            detector.capture_and_detect_interval(interval, max_captures)
+        
+        elif opcion == "3":
+            detector.test_camera()
+        
+        detector.cleanup()
+        
+    except Exception as e:
+        print(f"Error: {e}")
+        print("\nPosibles soluciones:")
+        print("1. Verificar que la cámara esté conectada")
+        print("2. Ejecutar: sudo raspi-config -> Enable Camera")
+        print("3. Instalar: sudo apt install libcamera-apps")
+        print("4. Reiniciar el sistema")
 
 if __name__ == "__main__":
     main()
