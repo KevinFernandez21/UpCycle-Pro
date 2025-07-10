@@ -5,7 +5,7 @@ import signal
 import sys
 
 # Configuración del pin
-PIR_PIN = 27
+PIR_PIN = 22
 
 # Variables globales
 detections = 0
