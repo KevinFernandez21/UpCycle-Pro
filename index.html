@@ -1,0 +1,1316 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sistema de Control - Universal</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Arial', sans-serif;
+            font-weight: bold;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: white;
+            width: 100vw;
+            min-height: 100vh;
+            overflow-x: hidden;
+            touch-action: manipulation;
+            margin: 0;
+            padding: 0;
+            font-size: clamp(16px, 4vw, 22px);
+        }
+
+        /* Header - Escalable */
+        .header {
+            background: rgba(0, 0, 0, 0.3);
+            padding: clamp(8px, 2.5vw, 16px) clamp(12px, 3vw, 24px);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            min-height: clamp(50px, 12vw, 70px);
+        }
+
+        .server-status {
+            display: flex;
+            align-items: center;
+            gap: clamp(8px, 2vw, 16px);
+            font-size: clamp(18px, 4.5vw, 26px);
+            font-weight: bold;
+        }
+
+        .status-dot {
+            width: clamp(14px, 3vw, 20px);
+            height: clamp(14px, 3vw, 20px);
+            border-radius: 50%;
+            background: #00ff00;
+            box-shadow: 0 0 12px #00ff00;
+        }
+
+        .time {
+            font-size: clamp(16px, 3.5vw, 20px);
+            color: #ccc;
+        }
+
+        /* Navigation - Más grande y escalable */
+        .nav-tabs {
+            display: flex;
+            background: rgba(0, 0, 0, 0.4);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            min-height: clamp(70px, 15vw, 90px);
+        }
+
+        .nav-tab {
+            flex: 1;
+            padding: clamp(12px, 3vw, 20px) clamp(8px, 2vw, 16px);
+            text-align: center;
+            background: none;
+            border: none;
+            color: #aaa;
+            font-size: clamp(14px, 3.5vw, 20px);
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: clamp(4px, 1vw, 8px);
+            font-weight: bold;
+        }
+
+        .nav-tab.active {
+            background: rgba(0, 100, 200, 0.3);
+            color: white;
+            border-bottom: clamp(3px, 0.8vw, 5px) solid #00aaff;
+        }
+
+        .nav-tab:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .nav-tab .emoji {
+            font-size: clamp(20px, 5vw, 28px);
+            line-height: 1;
+        }
+
+        .nav-tab .text {
+            font-size: clamp(12px, 3vw, 18px);
+            line-height: 1;
+            font-weight: bold;
+        }
+
+        /* Main Content - Altura dinámica */
+        .content {
+            padding: clamp(12px, 3vw, 24px);
+            min-height: calc(100vh - clamp(120px, 27vw, 160px));
+            overflow-y: auto;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Grid Layout - Responsivo completo */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(clamp(200px, 40vw, 300px), 1fr));
+            gap: clamp(12px, 3vw, 20px);
+            margin-bottom: clamp(15px, 4vw, 25px);
+        }
+
+        .wide-grid {
+            grid-template-columns: 1fr;
+        }
+
+        /* Para pantallas pequeñas, forzar una columna */
+        @media (max-width: 600px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Para pantallas medianas, dos columnas */
+        @media (min-width: 601px) and (max-width: 1000px) {
+            .dashboard-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        /* Para pantallas grandes, tres columnas */
+        @media (min-width: 1001px) {
+            .dashboard-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        /* Cards - Más grandes */
+        .card {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: clamp(10px, 2.5vw, 16px);
+            padding: clamp(16px, 4vw, 24px);
+            backdrop-filter: blur(10px);
+            transition: all 0.3s;
+            min-height: clamp(120px, 25vw, 180px);
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-title {
+            font-size: clamp(18px, 4.5vw, 24px);
+            color: #00aaff;
+            margin-bottom: clamp(12px, 3vw, 18px);
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        /* Status Cards */
+        .status-card {
+            text-align: center;
+        }
+
+        .status-value {
+            font-size: clamp(28px, 7vw, 40px);
+            font-weight: bold;
+            margin: clamp(8px, 2vw, 15px) 0;
+        }
+
+        .status-label {
+            font-size: clamp(16px, 4vw, 22px);
+            color: #ccc;
+        }
+
+        /* Progress Bars - Mucho más grandes */
+        .progress-container {
+            margin: clamp(12px, 3vw, 18px) 0;
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: clamp(16px, 4vw, 22px);
+            margin-bottom: clamp(8px, 2vw, 12px);
+            font-weight: bold;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: clamp(16px, 4vw, 24px);
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: clamp(8px, 2vw, 12px);
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: clamp(8px, 2vw, 12px);
+            transition: width 0.3s;
+        }
+
+        .progress-cpu { background: linear-gradient(90deg, #ff6b6b, #ff8e53); }
+        .progress-ram { background: linear-gradient(90deg, #4ecdc4, #44a08d); }
+        .progress-disk { background: linear-gradient(90deg, #feca57, #ff9ff3); }
+        .progress-temp { background: linear-gradient(90deg, #ff9a9e, #fecfef); }
+
+        /* Material Progress */
+        .material-progress {
+            display: flex;
+            gap: clamp(10px, 2.5vw, 16px);
+            margin-bottom: clamp(15px, 4vw, 25px);
+            flex-wrap: wrap;
+        }
+
+        .material-item {
+            flex: 1;
+            min-width: clamp(80px, 20vw, 120px);
+            text-align: center;
+            padding: clamp(12px, 3vw, 20px) clamp(8px, 2vw, 16px);
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: clamp(8px, 2vw, 12px);
+        }
+
+        .material-percentage {
+            font-size: clamp(24px, 6vw, 36px);
+            font-weight: bold;
+            margin-bottom: clamp(6px, 1.5vw, 10px);
+        }
+
+        .material-type {
+            font-size: clamp(14px, 3.5vw, 20px);
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        /* Sensors - Grid escalable */
+        .sensor-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(clamp(80px, 18vw, 120px), 1fr));
+            gap: clamp(10px, 2.5vw, 16px);
+            margin-bottom: clamp(15px, 4vw, 25px);
+        }
+
+        .sensor {
+            background: rgba(0, 0, 0, 0.4);
+            padding: clamp(12px, 3vw, 20px);
+            border-radius: clamp(8px, 2vw, 12px);
+            text-align: center;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            min-height: clamp(80px, 18vw, 120px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .sensor.ok {
+            border-color: #00ff00;
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.4);
+        }
+
+        .sensor.error {
+            border-color: #ff0000;
+            box-shadow: 0 0 15px rgba(255, 0, 0, 0.4);
+        }
+
+        .sensor-label {
+            font-size: clamp(14px, 3.5vw, 20px);
+            margin-bottom: clamp(6px, 1.5vw, 10px);
+            font-weight: bold;
+        }
+
+        .sensor-value {
+            font-size: clamp(18px, 4.5vw, 26px);
+            font-weight: bold;
+        }
+
+        /* Buttons - Mucho más grandes */
+        .button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            padding: clamp(16px, 4vw, 24px) clamp(20px, 5vw, 32px);
+            border-radius: clamp(10px, 2.5vw, 16px);
+            color: white;
+            font-size: clamp(16px, 4vw, 22px);
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            font-weight: bold;
+            min-height: clamp(60px, 12vw, 80px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .button.danger {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ff8e53 100%);
+        }
+
+        .button.success {
+            background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
+        }
+
+        /* Camera View */
+        .camera-view {
+            background: rgba(0, 0, 0, 0.6);
+            border-radius: clamp(10px, 2.5vw, 16px);
+            padding: clamp(16px, 4vw, 24px);
+            text-align: center;
+            margin-bottom: clamp(15px, 4vw, 25px);
+        }
+
+        .live-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: clamp(10px, 2.5vw, 16px);
+            margin-bottom: clamp(15px, 4vw, 25px);
+            font-size: clamp(16px, 4vw, 22px);
+            color: #00ff00;
+            font-weight: bold;
+        }
+
+        .live-dot {
+            width: clamp(12px, 3vw, 18px);
+            height: clamp(12px, 3vw, 18px);
+            background: #00ff00;
+            border-radius: 50%;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .camera-placeholder {
+            width: 100%;
+            height: clamp(180px, 35vw, 280px);
+            background: linear-gradient(45deg, #1e3c72 0%, #2a5298 100%);
+            border-radius: clamp(8px, 2vw, 12px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: clamp(15px, 4vw, 25px);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .camera-controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(clamp(100px, 20vw, 140px), 1fr));
+            gap: clamp(8px, 2vw, 12px);
+        }
+
+        .control-btn {
+            padding: clamp(12px, 3vw, 18px) clamp(8px, 2vw, 12px);
+            background: rgba(0, 0, 0, 0.5);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: clamp(8px, 2vw, 12px);
+            color: white;
+            font-size: clamp(14px, 3.5vw, 20px);
+            cursor: pointer;
+            min-height: clamp(50px, 10vw, 70px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* AI Section */
+        .ai-status {
+            display: flex;
+            gap: clamp(12px, 3vw, 20px);
+            margin-bottom: clamp(15px, 4vw, 25px);
+            flex-wrap: wrap;
+        }
+
+        .ai-module {
+            flex: 1;
+            min-width: clamp(150px, 30vw, 200px);
+            background: rgba(0, 0, 0, 0.4);
+            padding: clamp(16px, 4vw, 24px);
+            border-radius: clamp(8px, 2vw, 12px);
+            text-align: center;
+        }
+
+        .ai-module.online {
+            border: 2px solid #00ff00;
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.3);
+        }
+
+        .ai-name {
+            font-size: clamp(18px, 4.5vw, 24px);
+            font-weight: bold;
+            margin-bottom: clamp(8px, 2vw, 12px);
+        }
+
+        .ai-precision {
+            font-size: clamp(16px, 4vw, 22px);
+            color: #00aaff;
+            font-weight: bold;
+        }
+
+        /* Scrollable content */
+        .scrollable {
+            overflow-y: auto;
+            padding-right: clamp(5px, 1vw, 10px);
+        }
+
+        .scrollable::-webkit-scrollbar {
+            width: clamp(6px, 1.5vw, 10px);
+        }
+
+        .scrollable::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: clamp(3px, 0.8vw, 5px);
+        }
+
+        .scrollable::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: clamp(3px, 0.8vw, 5px);
+        }
+
+        /* Connection status */
+        .connection-status {
+            background: rgba(0, 0, 0, 0.4);
+            padding: clamp(12px, 3vw, 18px);
+            border-radius: clamp(8px, 2vw, 12px);
+            margin-bottom: clamp(12px, 3vw, 18px);
+        }
+
+        .connection-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: clamp(6px, 1.5vw, 10px);
+            font-size: clamp(14px, 3.5vw, 20px);
+        }
+
+        .connection-indicator {
+            width: clamp(10px, 2.5vw, 16px);
+            height: clamp(10px, 2.5vw, 16px);
+            border-radius: 50%;
+            background: #00ff00;
+        }
+
+        .connection-indicator.offline {
+            background: #ff0000;
+        }
+
+        /* Configuration specific styles */
+        .config-section {
+            margin-bottom: clamp(15px, 4vw, 25px);
+        }
+
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(clamp(200px, 40vw, 300px), 1fr));
+            gap: clamp(12px, 3vw, 20px);
+            margin-bottom: clamp(12px, 3vw, 18px);
+        }
+
+        .input-group {
+            margin-bottom: clamp(12px, 3vw, 18px);
+        }
+
+        .input-group label {
+            display: block;
+            font-size: clamp(14px, 3.5vw, 20px);
+            margin-bottom: clamp(6px, 1.5vw, 10px);
+            font-weight: bold;
+        }
+
+        .input-group select, .input-group input {
+            width: 100%;
+            padding: clamp(10px, 2.5vw, 16px);
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: clamp(6px, 1.5vw, 10px);
+            font-size: clamp(14px, 3.5vw, 20px);
+            min-height: clamp(40px, 8vw, 60px);
+        }
+
+        .system-info {
+            font-size: clamp(12px, 3vw, 18px);
+            line-height: 1.4;
+        }
+
+        .system-info div {
+            margin-bottom: clamp(4px, 1vw, 8px);
+        }
+
+        /* Button groups */
+        .button-group {
+            display: flex;
+            gap: clamp(8px, 2vw, 12px);
+            margin-top: clamp(12px, 3vw, 18px);
+            flex-wrap: wrap;
+        }
+
+        .button-group .button {
+            flex: 1;
+            min-width: clamp(80px, 18vw, 120px);
+        }
+
+        .button-group .control-btn {
+            flex: 1;
+            min-width: clamp(60px, 15vw, 100px);
+        }
+
+        /* Optimizaciones para Raspberry Pi 2 Model B */
+        
+        /* Reducir animaciones para mejor rendimiento */
+        .card:hover {
+            transform: none;
+        }
+        
+        .button:hover, .control-btn:hover {
+            transform: none;
+        }
+        
+        /* Simplificar gradientes para mejor rendimiento */
+        .progress-cpu { background: #ff6b6b; }
+        .progress-ram { background: #4ecdc4; }
+        .progress-temp { background: #ff9a9e; }
+        
+        /* Optimizar scrollbars para Chromium en Pi */
+        .scrollable::-webkit-scrollbar {
+            width: 8px;
+            background: #333;
+        }
+        
+        .scrollable::-webkit-scrollbar-thumb {
+            background: #666;
+            border-radius: 4px;
+        }
+        
+        /* Reducir blur effects para mejor rendimiento */
+        .card {
+            backdrop-filter: none;
+            background: rgba(0, 0, 0, 0.6);
+        }
+        
+        /* Iconos ASCII más compatibles */
+        .nav-tab .emoji {
+            font-family: monospace;
+            font-weight: bold;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+            width: clamp(32px, 8vw, 48px);
+            height: clamp(32px, 8vw, 48px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .nav-tab.active .emoji {
+            border-color: #00aaff;
+            background: rgba(0, 170, 255, 0.2);
+        }
+
+        /* Touch optimizations */
+        .button, .control-btn, .nav-tab {
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+
+        /* Animation for touch feedback */
+        .button:active, .control-btn:active, .nav-tab:active {
+            transform: scale(0.95);
+        }
+
+        /* Responsive breakpoints específicos */
+        @media (max-width: 480px) {
+            .nav-tabs {
+                min-height: 80px;
+            }
+            
+            .sensor-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .ai-status {
+                flex-direction: column;
+            }
+        }
+
+        @media (min-width: 481px) and (max-width: 768px) {
+            .nav-tabs {
+                min-height: 90px;
+            }
+            
+            .sensor-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+
+        @media (min-width: 769px) {
+            .nav-tabs {
+                min-height: 100px;
+            }
+            
+            .sensor-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+            
+            body {
+                max-width: 1400px;
+                margin: 0 auto;
+            }
+        }
+
+        /* Para pantallas muy grandes */
+        @media (min-width: 1600px) {
+            .dashboard-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="server-status">
+            <span>TFT-Universal</span>
+            <div class="status-dot"></div>
+            <span>ONLINE</span>
+        </div>
+        <div class="time" id="current-time">7:48:58 PM</div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="nav-tabs">
+        <button class="nav-tab active" onclick="showTab('home')">
+            <div class="emoji">[H]</div>
+            <div class="text">HOME</div>
+        </button>
+        <button class="nav-tab" onclick="showTab('camera')">
+            <div class="emoji">[C]</div>
+            <div class="text">CÁMARA</div>
+        </button>
+        <button class="nav-tab" onclick="showTab('config')">
+            <div class="emoji">[*]</div>
+            <div class="text">CONFIG</div>
+        </button>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+        <!-- HOME TAB -->
+        <div id="home" class="tab-content active scrollable">
+            <!-- System Status -->
+            <div class="dashboard-grid">
+                <div class="card">
+                    <div class="card-title">[PC] Sistema</div>
+                    <div class="progress-container">
+                        <div class="progress-label">
+                            <span>CPU</span>
+                            <span>65%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill progress-cpu" style="width: 65%"></div>
+                        </div>
+                    </div>
+                    <div class="progress-container">
+                        <div class="progress-label">
+                            <span>RAM</span>
+                            <span>90%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill progress-ram" style="width: 90%"></div>
+                        </div>
+                    </div>
+                    <div class="progress-container">
+                        <div class="progress-label">
+                            <span>Temp</span>
+                            <span>42°C</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill progress-temp" style="width: 70%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">[%] Detección</div>
+                    <div class="status-card">
+                        <div class="status-value" style="color: #feca57;">Plástico</div>
+                        <div class="status-label">95.8%</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Material Progress -->
+            <div class="card wide-grid" style="margin-bottom: 15px;">
+                <div class="card-title">[#] Materiales</div>
+                <div class="material-progress">
+                    <div class="material-item">
+                        <div class="material-percentage" style="color: #4ecdc4;">45%</div>
+                        <div class="material-type">Plástico</div>
+                    </div>
+                    <div class="material-item">
+                        <div class="material-percentage" style="color: #ff6b6b;">30%</div>
+                        <div class="material-type">Vidrio</div>
+                    </div>
+                    <div class="material-item">
+                        <div class="material-percentage" style="color: #feca57;">25%</div>
+                        <div class="material-type">Cartón</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Status -->
+            <div class="card wide-grid" style="margin-bottom: 15px;">
+                <div class="card-title">[AI] Inteligencia Artificial</div>
+                <div class="ai-status">
+                    <div class="ai-module online">
+                        <div class="ai-name">CNN</div>
+                        <div class="ai-precision">96.8%</div>
+                    </div>
+                    <div class="ai-module online">
+                        <div class="ai-name">RNN</div>
+                        <div class="ai-precision">92.5%</div>
+                    </div>
+                </div>
+                <div class="connection-status">
+                    <div class="connection-item">
+                        <span>AWS Conectado</span>
+                        <div class="connection-indicator"></div>
+                    </div>
+                    <div class="connection-item">
+                        <span>Latencia: 47ms</span>
+                        <span style="color: #00aaff;">us-east-1</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sensors -->
+            <div class="card wide-grid">
+                <div class="card-title">[S] Sensores PIR</div>
+                <div class="sensor-grid">
+                    <div class="sensor ok">
+                        <div class="sensor-label">PIR-1</div>
+                        <div class="sensor-value">OK</div>
+                    </div>
+                    <div class="sensor ok">
+                        <div class="sensor-label">PIR-2</div>
+                        <div class="sensor-value">OK</div>
+                    </div>
+                    <div class="sensor error">
+                        <div class="sensor-label">PIR-3</div>
+                        <div class="sensor-value">ERR</div>
+                    </div>
+                    <div class="sensor ok">
+                        <div class="sensor-label">PIR-4</div>
+                        <div class="sensor-value">OK</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CAMERA TAB -->
+        <div id="camera" class="tab-content scrollable">
+            <div class="camera-view">
+                <div class="live-indicator">
+                    <div class="live-dot"></div>
+                    <span>EN VIVO - 1080p</span>
+                </div>
+                <div class="camera-placeholder">
+                    <div style="text-align: center; color: rgba(255,255,255,0.7);">
+                        <div style="font-size: clamp(28px, 6vw, 40px); margin-bottom: 8px;">[CAM]</div>
+                        <div style="font-size: clamp(16px, 4vw, 22px);">Cámara Activa</div>
+                        <div style="font-size: clamp(14px, 3.5vw, 20px);">Zoom: 1.8x</div>
+                    </div>
+                </div>
+                <div class="camera-controls">
+                    <button class="control-btn">[+] ZOOM</button>
+                    <button class="control-btn">[-] ZOOM</button>
+                    <button class="control-btn">[*] FOTO</button>
+                    <button class="control-btn">[F] FOCO</button>
+                </div>
+            </div>
+
+            <!-- Camera Configuration -->
+            <div class="card config-section">
+                <div class="card-title">[SET] Config Cámara</div>
+                <div class="config-grid">
+                    <div>
+                        <div class="progress-container">
+                            <div class="progress-label">
+                                <span>[F] Enfoque</span>
+                                <span>87%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="background: linear-gradient(90deg, #4ecdc4, #44a08d); width: 87%"></div>
+                            </div>
+                        </div>
+                        <div class="button-group">
+                            <button class="button">MENOS</button>
+                            <button class="button">MÁS</button>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="progress-container">
+                            <div class="progress-label">
+                                <span>[L] Exposición</span>
+                                <span>50%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="background: linear-gradient(90deg, #feca57, #ff9ff3); width: 50%"></div>
+                            </div>
+                        </div>
+                        <div class="button-group">
+                            <button class="control-btn">[D] OSCURO</button>
+                            <button class="control-btn">[B] CLARO</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detection -->
+            <div class="card">
+                <div class="card-title">[T] Detección Activa</div>
+                <div style="text-align: center; padding: clamp(12px, 3vw, 20px);">
+                    <div style="font-size: clamp(20px, 5vw, 28px); margin-bottom: clamp(8px, 2vw, 12px);">
+                        Objetos: <span style="color: #00aaff; font-weight: bold;">3</span>
+                    </div>
+                    <div style="font-size: clamp(16px, 4vw, 22px); color: #ccc;">Confianza: 95.7%</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONFIG TAB -->
+        <div id="config" class="tab-content scrollable">
+            <!-- Connectivity -->
+            <div class="card config-section">
+                <div class="card-title">[NET] Conectividad</div>
+                <div class="connection-status">
+                    <div class="connection-item">
+                        <span>Servidor Conectado</span>
+                        <div class="connection-indicator"></div>
+                    </div>
+                    <div class="connection-item">
+                        <span>Latencia: 58ms</span>
+                        <span>Uptime: 99.8%</span>
+                    </div>
+                    <div class="connection-item">
+                        <span>AWS ML</span>
+                        <div class="connection-indicator"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Motors & Actuators -->
+            <div class="card config-section">
+                <div class="card-title">[MOT] Motores & Actuadores</div>
+                <div class="config-grid">
+                    <div>
+                        <div class="progress-container">
+                            <div class="progress-label">
+                                <span>Motor Principal</span>
+                                <span>75%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill progress-cpu" style="width: 75%"></div>
+                            </div>
+                        </div>
+                        <div class="button-group">
+                            <button class="button">[-] MENOS</button>
+                            <button class="button">[+] MÁS</button>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="input-group">
+                            <label>Servomotores</label>
+                            <select>
+                                <option>SERVO-1 - ACTIVO</option>
+                                <option>SERVO-2 - INACTIVO</option>
+                                <option>SERVO-3 - MANTENIMIENTO</option>
+                            </select>
+                        </div>
+                        <div class="progress-container">
+                            <div class="progress-label">
+                                <span>Posición</span>
+                                <span>90°</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="background: linear-gradient(90deg, #feca57, #ff9ff3); width: 50%"></div>
+                            </div>
+                        </div>
+                        <div class="button-group">
+                            <button class="control-btn">0°</button>
+                            <button class="control-btn">90°</button>
+                            <button class="control-btn">180°</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Calibration -->
+            <div class="card config-section">
+                <div class="card-title">[CAL] Sensores & Calibración</div>
+                <div class="config-grid">
+                    <div>
+                        <div style="text-align: center; margin-bottom: clamp(12px, 3vw, 18px);">
+                            <div style="font-size: clamp(14px, 3.5vw, 20px); margin-bottom: clamp(6px, 1.5vw, 10px); font-weight: bold;">Calibración Peso</div>
+                            <span style="font-size: clamp(18px, 4.5vw, 24px); color: #00aaff;">Offset: 0.00g</span>
+                        </div>
+                        <div class="button-group">
+                            <button class="control-btn">-0.1g</button>
+                            <button class="control-btn">+0.1g</button>
+                        </div>
+                        <button class="button success" style="margin-top: clamp(12px, 3vw, 18px); width: 100%;">[R] RESET PESO</button>
+                    </div>
+                    <div>
+                        <div class="input-group">
+                            <label>Sensores PIR</label>
+                            <select>
+                                <option>PIR-1 - ACTIVO</option>
+                                <option>PIR-2 - ACTIVO</option>
+                                <option>PIR-3 - ERROR</option>
+                                <option>PIR-4 - ACTIVO</option>
+                            </select>
+                        </div>
+                        <div style="text-align: center; margin-top: clamp(12px, 3vw, 18px);">
+                            <div style="font-size: clamp(16px, 4vw, 22px); margin-bottom: clamp(6px, 1.5vw, 10px);">PIR-1</div>
+                            <div style="font-size: clamp(20px, 5vw, 28px); color: #00ff00;">ACTIVO</div>
+                            <div style="font-size: clamp(12px, 3vw, 18px); color: #ccc;">Valor: 85%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Settings -->
+            <div class="card config-section">
+                <div class="card-title">[SYS] Configuración Sistema</div>
+                <div class="input-group">
+                    <label>Material Objetivo</label>
+                    <select>
+                        <option>PLÁSTICO</option>
+                        <option>VIDRIO</option>
+                        <option>METAL</option>
+                        <option>CARTÓN</option>
+                        <option>PAPEL</option>
+                    </select>
+                </div>
+                <div class="button-group">
+                    <button class="button success">[S] GUARDAR CONFIG</button>
+                    <button class="button danger">[R] RESET SISTEMA</button>
+                </div>
+            </div>
+
+            <!-- Advanced Settings -->
+            <div class="card config-section">
+                <div class="card-title">[ADV] Configuración Avanzada</div>
+                <div class="config-grid">
+                    <div>
+                        <div style="font-size: clamp(14px, 3.5vw, 20px); margin-bottom: clamp(8px, 2vw, 12px); font-weight: bold;">Umbral de Detección</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="background: linear-gradient(90deg, #667eea, #764ba2); width: 75%"></div>
+                        </div>
+                        <div style="font-size: clamp(12px, 3vw, 18px); color: #ccc; margin-top: clamp(6px, 1.5vw, 10px);">75% - Sensibilidad Alta</div>
+                    </div>
+                    <div>
+                        <div style="font-size: clamp(14px, 3.5vw, 20px); margin-bottom: clamp(8px, 2vw, 12px); font-weight: bold;">Frecuencia de Muestreo</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="background: linear-gradient(90deg, #4ecdc4, #44a08d); width: 60%"></div>
+                        </div>
+                        <div style="font-size: clamp(12px, 3vw, 18px); color: #ccc; margin-top: clamp(6px, 1.5vw, 10px);">30fps - Balanceado</div>
+                    </div>
+                </div>
+                <div class="button-group" style="margin-top: clamp(15px, 4vw, 25px);">
+                    <button class="button">[D] Diagnósticos</button>
+                    <button class="button">[L] Logs Sistema</button>
+                </div>
+            </div>
+
+            <!-- Network Settings -->
+            <div class="card config-section">
+                <div class="card-title">[WIFI] Configuración de Red</div>
+                <div class="connection-status">
+                    <div class="connection-item">
+                        <span>WiFi: TuRedWiFi</span>
+                        <div class="connection-indicator"></div>
+                    </div>
+                    <div class="connection-item">
+                        <span>IP: 192.168.1.105</span>
+                        <span style="color: #00aaff;">DHCP</span>
+                    </div>
+                    <div class="connection-item">
+                        <span>Señal: -45 dBm</span>
+                        <span style="color: #00ff00;">Excelente</span>
+                    </div>
+                </div>
+                <div class="button-group">
+                    <button class="button">[W] Reconectar WiFi</button>
+                    <button class="button">[S] Scan Redes</button>
+                </div>
+            </div>
+
+            <!-- System Info -->
+            <div class="card config-section">
+                <div class="card-title">[INFO] Información del Sistema</div>
+                <div class="system-info">
+                    <div><strong>Hardware:</strong> Raspberry Pi 2 Model B</div>
+                    <div><strong>OS:</strong> Raspberry Pi OS Lite (32-bit)</div>
+                    <div><strong>Kernel:</strong> 5.10.103-v7+ #1529</div>
+                    <div><strong>Uptime:</strong> 2 días, 14:32:18</div>
+                    <div><strong>Memoria:</strong> 1GB RAM (850MB usada)</div>
+                    <div><strong>Storage:</strong> 32GB SD Class 10</div>
+                    <div><strong>Temperatura CPU:</strong> 42.1°C</div>
+                    <div><strong>Versión Software:</strong> v2.1.3-stable</div>
+                </div>
+            </div>
+        </div>
+
+        </div>
+    </div>
+
+    <script>
+        // Tab functionality
+        function showTab(tabName) {
+            // Hide all tab contents
+            const tabs = document.querySelectorAll('.tab-content');
+            tabs.forEach(tab => tab.classList.remove('active'));
+            
+            // Remove active class from all nav tabs
+            const navTabs = document.querySelectorAll('.nav-tab');
+            navTabs.forEach(tab => tab.classList.remove('active'));
+            
+            // Show selected tab
+            document.getElementById(tabName).classList.add('active');
+            
+            // Add active class to clicked nav tab
+            event.target.closest('.nav-tab').classList.add('active');
+        }
+
+        // Update time
+        function updateTime() {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('en-US', {
+                hour12: true,
+                hour: 'numeric',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            document.getElementById('current-time').textContent = timeString;
+        }
+
+        // Simulate real-time data updates
+        function simulateDataUpdates() {
+            // Update CPU usage
+            const cpuBar = document.querySelector('.progress-cpu');
+            const cpuLabel = document.querySelector('.progress-label span:last-child');
+            const randomCpu = 50 + Math.random() * 30;
+            if (cpuBar) {
+                cpuBar.style.width = randomCpu + '%';
+                const labels = document.querySelectorAll('.progress-label span:last-child');
+                labels.forEach(label => {
+                    if (label.textContent.includes('%') && label.closest('.progress-container').querySelector('.progress-cpu')) {
+                        label.textContent = randomCpu.toFixed(0) + '%';
+                    }
+                });
+            }
+            
+            // Update material detection confidence
+            const confidence = 90 + Math.random() * 9;
+            const statusLabel = document.querySelector('.status-label');
+            if (statusLabel) {
+                statusLabel.textContent = confidence.toFixed(1) + '%';
+            }
+            
+            // Update material percentages
+            const plasticPercentage = 40 + Math.random() * 20;
+            const glassPercentage = 25 + Math.random() * 15;
+            const cardboardPercentage = 100 - plasticPercentage - glassPercentage;
+            
+            const materialItems = document.querySelectorAll('.material-percentage');
+            if (materialItems.length >= 3) {
+                materialItems[0].textContent = plasticPercentage.toFixed(0) + '%';
+                materialItems[1].textContent = glassPercentage.toFixed(0) + '%';
+                materialItems[2].textContent = cardboardPercentage.toFixed(0) + '%';
+            }
+            
+            // Update temperature
+            const temp = 40 + Math.random() * 8;
+            const tempElements = document.querySelectorAll('.progress-label span');
+            tempElements.forEach(el => {
+                if (el.textContent.includes('°C')) {
+                    el.textContent = temp.toFixed(1) + '°C';
+                }
+            });
+            
+            // Update AI precision
+            const precision1 = 94 + Math.random() * 5;
+            const precision2 = 90 + Math.random() * 8;
+            const aiPrecisions = document.querySelectorAll('.ai-precision');
+            if (aiPrecisions.length >= 2) {
+                aiPrecisions[0].textContent = precision1.toFixed(1) + '%';
+                aiPrecisions[1].textContent = precision2.toFixed(1) + '%';
+            }
+        }
+
+        // Simulate sensor status changes
+        function updateSensorStatus() {
+            const sensors = document.querySelectorAll('.sensor');
+            sensors.forEach((sensor, index) => {
+                if (Math.random() < 0.03) { // 3% chance to change status
+                    if (sensor.classList.contains('ok')) {
+                        sensor.classList.remove('ok');
+                        sensor.classList.add('error');
+                        sensor.querySelector('.sensor-value').textContent = 'ERR';
+                    } else {
+                        sensor.classList.remove('error');
+                        sensor.classList.add('ok');
+                        sensor.querySelector('.sensor-value').textContent = 'OK';
+                    }
+                }
+            });
+        }
+
+        // Button click handlers with visual feedback
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('button') || e.target.classList.contains('control-btn')) {
+                // Add click animation
+                e.target.style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    e.target.style.transform = '';
+                }, 150);
+                
+                // Handle button actions
+                handleButtonClick(e.target);
+            }
+        });
+
+        // Button action handler
+        function handleButtonClick(button) {
+            const buttonText = button.textContent.trim();
+            console.log('Button clicked:', buttonText);
+            
+            // Add visual feedback for actions
+            switch (buttonText) {
+                case '[+] ZOOM':
+                    showAlert('Zoom aumentado', 'info');
+                    break;
+                case '[-] ZOOM':
+                    showAlert('Zoom reducido', 'info');
+                    break;
+                case '[*] FOTO':
+                    showAlert('Imagen capturada', 'success');
+                    break;
+                case '[F] FOCO':
+                    showAlert('Enfoque automático activado', 'info');
+                    break;
+                case '[S] GUARDAR CONFIG':
+                    showAlert('Configuración guardada', 'success');
+                    break;
+                case '[R] RESET SISTEMA':
+                    if (confirm('¿Estás seguro de reiniciar el sistema?')) {
+                        showAlert('Sistema reiniciando...', 'warning');
+                    }
+                    break;
+                case '[R] RESET PESO':
+                    showAlert('Peso calibrado correctamente', 'success');
+                    break;
+                case '[W] Reconectar WiFi':
+                    showAlert('Reconectando WiFi...', 'info');
+                    break;
+                case '[S] Scan Redes':
+                    showAlert('Escaneando redes WiFi...', 'info');
+                    break;
+                case '[D] Diagnósticos':
+                    showAlert('Ejecutando diagnósticos...', 'info');
+                    break;
+                case '[L] Logs Sistema':
+                    showAlert('Mostrando logs del sistema...', 'info');
+                    break;
+                case 'MENOS':
+                case '[-] MENOS':
+                    showAlert('Valor reducido', 'info');
+                    break;
+                case 'MÁS':
+                case '[+] MÁS':
+                    showAlert('Valor aumentado', 'info');
+                    break;
+                case '[D] OSCURO':
+                    showAlert('Modo oscuro activado', 'info');
+                    break;
+                case '[B] CLARO':
+                    showAlert('Modo claro activado', 'info');
+                    break;
+                default:
+                    showAlert('Función ejecutada', 'info');
+            }
+        }
+
+        // Simple alert system
+        function showAlert(message, level = 'info') {
+            // Remove existing alerts
+            const existingAlerts = document.querySelectorAll('.system-alert');
+            existingAlerts.forEach(alert => alert.remove());
+            
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'system-alert';
+            const colors = {
+                info: '#4ecdc4',
+                success: '#00ff00',
+                warning: '#feca57',
+                error: '#ff6b6b'
+            };
+            
+            alertDiv.style.cssText = `
+                position: fixed;
+                top: clamp(60px, 15vw, 100px);
+                left: 50%;
+                transform: translateX(-50%);
+                padding: clamp(12px, 3vw, 20px) clamp(16px, 4vw, 24px);
+                background: ${colors[level]};
+                color: white;
+                border-radius: clamp(8px, 2vw, 12px);
+                z-index: 1000;
+                font-size: clamp(14px, 3.5vw, 20px);
+                font-weight: bold;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+                opacity: 0;
+                transition: opacity 0.3s ease;
+            `;
+            alertDiv.textContent = message;
+            document.body.appendChild(alertDiv);
+            
+            // Fade in
+            setTimeout(() => {
+                alertDiv.style.opacity = '1';
+            }, 10);
+            
+            // Fade out and remove
+            setTimeout(() => {
+                alertDiv.style.opacity = '0';
+                setTimeout(() => {
+                    if (document.body.contains(alertDiv)) {
+                        document.body.removeChild(alertDiv);
+                    }
+                }, 300);
+            }, 2500);
+        }
+
+        // Prevent context menu and double-tap zoom
+        document.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+        });
+
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', function(event) {
+            const now = (new Date()).getTime();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, false);
+
+        // Initialize system
+        function initializeSystem() {
+            console.log('Inicializando sistema UCpro optimizado para Pi 2...');
+            
+            // Start updates with longer intervals for better performance on Pi 2
+            setInterval(updateTime, 1000);
+            setInterval(simulateDataUpdates, 4000); // Reduced frequency
+            setInterval(updateSensorStatus, 8000);  // Reduced frequency
+            
+            // Initial updates
+            updateTime();
+            simulateDataUpdates();
+            
+            console.log('Sistema UCpro inicializado correctamente');
+        }
+
+        // Initialize when page loads
+        window.addEventListener('load', initializeSystem);
+    </script>
+    </script>
+</body>
+</html>
