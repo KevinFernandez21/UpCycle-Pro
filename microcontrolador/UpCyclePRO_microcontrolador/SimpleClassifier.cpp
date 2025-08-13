@@ -112,7 +112,7 @@ void SimpleClassifier::stopSystem() {
   currentState = IDLE;
   selectedMode = 0;
   
-  oledDisplay.showRecycleScreen(); // Volver a pantalla principal
+  oledDisplay.showMainScreen(); // Volver a pantalla principal
   
   Serial.println("🛑 SISTEMA DETENIDO");
   Serial.println("📋 Listo para nuevo comando");

@@ -16,3 +16,5 @@ raspi-gpio==0.7.1
 smbus2==1.0.0
 toml==0.10.2
 typing-extensions==4.14.1
+"fastapi[standard]"
+

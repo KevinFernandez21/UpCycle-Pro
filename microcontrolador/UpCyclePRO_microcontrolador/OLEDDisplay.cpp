@@ -8,38 +8,43 @@ OLEDDisplay::OLEDDisplay() :
 }
 
 bool OLEDDisplay::begin() {
+  Wire.begin(21, 22);
+  Wire.setClock(100000); // Reducir velocidad I2C para mayor estabilidad
+  
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println("Error: No se pudo inicializar el display OLED");
+    Serial.println("Verificar conexiones I2C: SDA=21, SCL=22");
+    Serial.println("Verificar alimentación OLED: 3.3V");
     return false;
   }
   
   display.clearDisplay();
-  showRecycleScreen(); // Mostrar pantalla principal con ícono
+  showMainScreen(); // Mostrar pantalla principal UpCyclePro
   Serial.println("Display OLED inicializado correctamente");
   return true;
 }
 
-void OLEDDisplay::showRecycleScreen() {
+void OLEDDisplay::showMainScreen() {
   display.clearDisplay();
   
-  // Dibujar ícono de reciclaje centrado
-  drawRecycleIcon();
+  // Título "UpCyclePro" centrado en la parte superior
+  drawCenteredText("UpCyclePro", 2, 0);
   
-  // Texto "RECICLAJE" debajo del ícono
-  drawCenteredText("RECICLAJE", 1, 26);
+  // Subtítulo "LISTO" en la parte inferior
+  drawCenteredText("LISTO", 1, 24);
   
   display.display();
   showingMaterial = false;
-  currentMessage = "RECICLAJE";
+  currentMessage = "UpCyclePro";
   lastUpdate = millis();
   
-  Serial.println("Display: Pantalla principal - Ícono de reciclaje");
+  Serial.println("Display: Pantalla principal - UpCyclePro");
 }
 
 void OLEDDisplay::drawRecycleIcon() {
   // Centrar el ícono de 24x24 en la pantalla de 128x32
   int iconX = (SCREEN_WIDTH - 24) / 2;  // Centrado horizontalmente
-  int iconY = 0;  // En la parte superior
+  int iconY = 4;  // Pequeño margen superior para pantalla de 32px
   
   display.drawBitmap(iconX, iconY, recycleBitmap, 24, 24, SSD1306_WHITE);
 }
@@ -61,11 +66,11 @@ void OLEDDisplay::drawCenteredText(String text, int textSize, int y) {
 void OLEDDisplay::showMode1() {
   display.clearDisplay();
   
-  // Número grande
-  drawCenteredText("1", 3, 0);
+  // Número grande optimizado para 32px altura
+  drawCenteredText("1", 2, 0);
   
   // Material
-  drawCenteredText("VIDRIO", 1, 26);
+  drawCenteredText("VIDRIO", 1, 20);
   
   display.display();
   showingMaterial = true;
@@ -78,11 +83,11 @@ void OLEDDisplay::showMode1() {
 void OLEDDisplay::showMode2() {
   display.clearDisplay();
   
-  // Número grande
-  drawCenteredText("2", 3, 0);
+  // Número grande optimizado para 32px altura
+  drawCenteredText("2", 2, 0);
   
   // Material
-  drawCenteredText("PLASTICO", 1, 26);
+  drawCenteredText("PLASTICO", 1, 20);
   
   display.display();
   showingMaterial = true;
@@ -95,11 +100,11 @@ void OLEDDisplay::showMode2() {
 void OLEDDisplay::showMode3() {
   display.clearDisplay();
   
-  // Número grande
-  drawCenteredText("3", 3, 0);
+  // Número grande optimizado para 32px altura
+  drawCenteredText("3", 2, 0);
   
   // Material
-  drawCenteredText("METAL", 1, 26);
+  drawCenteredText("METAL", 1, 20);
   
   display.display();
   showingMaterial = true;
@@ -112,11 +117,11 @@ void OLEDDisplay::showMode3() {
 void OLEDDisplay::showVidrio() {
   display.clearDisplay();
   
-  // Título
+  // Título compacto para 32px
   drawCenteredText("MATERIAL:", 1, 0);
   
-  // Material en grande
-  drawCenteredText("VIDRIO", 2, 12);
+  // Material en grande pero ajustado
+  drawCenteredText("VIDRIO", 1, 16);
   
   display.display();
   showingMaterial = true;
@@ -129,11 +134,11 @@ void OLEDDisplay::showVidrio() {
 void OLEDDisplay::showPlastico() {
   display.clearDisplay();
   
-  // Título
+  // Título compacto para 32px
   drawCenteredText("MATERIAL:", 1, 0);
   
-  // Material en grande
-  drawCenteredText("PLASTICO", 2, 12);
+  // Material en grande pero ajustado
+  drawCenteredText("PLASTICO", 1, 16);
   
   display.display();
   showingMaterial = true;
@@ -146,11 +151,11 @@ void OLEDDisplay::showPlastico() {
 void OLEDDisplay::showMetal() {
   display.clearDisplay();
   
-  // Título
+  // Título compacto para 32px
   drawCenteredText("MATERIAL:", 1, 0);
   
-  // Material en grande
-  drawCenteredText("METAL", 2, 12);
+  // Material en grande pero ajustado
+  drawCenteredText("METAL", 1, 16);
   
   display.display();
   showingMaterial = true;
@@ -191,9 +196,9 @@ void OLEDDisplay::showWeight(float weight) {
   
   drawCenteredText("PESO:", 1, 0);
   
-  // Mostrar peso con 1 decimal
+  // Mostrar peso con 1 decimal, ajustado para 32px
   String weightText = String(weight, 1) + " g";
-  drawCenteredText(weightText, 2, 12);
+  drawCenteredText(weightText, 1, 16);
   
   display.display();
   currentMessage = "PESO: " + weightText;
@@ -237,10 +242,10 @@ void OLEDDisplay::clear() {
 void OLEDDisplay::update() {
   // Si está mostrando un material por más de 3 segundos, volver a pantalla principal
   if (showingMaterial && (millis() - lastUpdate > 3000)) {
-    showRecycleScreen();
+    showMainScreen();
   }
 }
 
 void OLEDDisplay::returnToMainScreen() {
-  showRecycleScreen();
+  showMainScreen();
 }

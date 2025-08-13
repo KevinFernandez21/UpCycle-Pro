@@ -1,3 +1,0 @@
-# Contiene la configuración del endpoint de AWS y las claves
-endpoint: "https://mi-modelo-aws.com"
-clave_api: "mi_clave_secreta_aws"

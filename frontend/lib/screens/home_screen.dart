@@ -1,8 +1,47 @@
 import 'package:flutter/material.dart';
 import '../widgets/animated_widgets.dart';
+import '../services/api_service.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final ApiService _apiService = ApiService();
+  Map<String, dynamic>? _apiInfo;
+  Map<String, dynamic>? _modelInfo;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadApiData();
+  }
+
+  Future<void> _loadApiData() async {
+    try {
+      final apiInfoFuture = _apiService.getApiInfo();
+      final modelInfoFuture = _apiService.getModelInfo();
+
+      final results = await Future.wait([
+        apiInfoFuture,
+        modelInfoFuture.catchError((e) => null),
+      ]);
+
+      setState(() {
+        _apiInfo = results[0] as Map<String, dynamic>?;
+        _modelInfo = results[1] as Map<String, dynamic>?;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -251,9 +290,9 @@ class HomeScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-                    child: const Column(
+                    child: Column(
                       children: [
-                        Text(
+                        const Text(
                           'CNN',
                           style: TextStyle(
                             color: Colors.white,
@@ -261,11 +300,11 @@ class HomeScreen extends StatelessWidget {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        SizedBox(height: 8),
+                        const SizedBox(height: 8),
                         Text(
-                          '96.8%',
+                          _modelInfo != null ? 'Cargado' : 'No Cargado',
                           style: TextStyle(
-                            color: Color(0xFF00aaff),
+                            color: _modelInfo != null ? const Color(0xFF00aaff) : Colors.red,
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                           ),
@@ -336,28 +375,28 @@ class HomeScreen extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'AWS Conectado',
-                        style: TextStyle(color: Colors.white, fontSize: 14),
+                      Text(
+                        _apiInfo != null ? 'FastAPI Conectado' : 'FastAPI Desconectado',
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
                       ),
-                      const PulsingDot(
-                        color: Colors.green,
+                      PulsingDot(
+                        color: _apiInfo != null ? Colors.green : Colors.red,
                         size: 12,
-                        duration: Duration(seconds: 1),
+                        duration: const Duration(seconds: 1),
                       ),
                     ],
                   ),
                   const SizedBox(height: 6),
-                  const Row(
+                  Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Latencia: 47ms',
-                        style: TextStyle(color: Colors.white, fontSize: 14),
+                        _apiInfo != null ? 'Estado: ${_apiInfo!['status'] ?? 'N/A'}' : 'Estado: Offline',
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
                       ),
                       Text(
-                        'us-east-1',
-                        style: TextStyle(color: Color(0xFF00aaff), fontSize: 14),
+                        _apiInfo != null ? 'v${_apiInfo!['version'] ?? '1.0.0'}' : 'N/A',
+                        style: const TextStyle(color: Color(0xFF00aaff), fontSize: 14),
                       ),
                     ],
                   ),

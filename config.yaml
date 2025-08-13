@@ -1,0 +1,62 @@
+# Configuración General del Proyecto UpCycle Pro
+
+# API Backend Configuration
+api:
+  host: "192.168.0.108"
+  port: 8000
+  base_url: "http://192.168.0.108:8000"
+  timeout: 30
+  
+# CNN Model Configuration  
+model:
+  path: "./backend/api/cnn_model"
+  classes: ["glass", "metal", "plastic"]
+  input_size: [224, 224]
+  confidence_threshold: 0.7
+
+# Microcontroller Configuration
+microcontroller:
+  esp32_ip: "192.168.0.109"  # IP del ESP32 en la red local
+  communication:
+    sensor_update_interval: 1  # segundos
+    motor_timeout: 5  # segundos
+  
+  # Servo positions for material separation
+  servo_positions:
+    glass: 45      # grados
+    plastic: 90    # grados (neutral)
+    metal: 135     # grados
+    
+  # Sensor thresholds
+  sensors:
+    weight_threshold: 0.1  # kg mínimo para activar sistema
+    pir_sensitivity: true
+    
+# Flutter Frontend Configuration
+frontend:
+  name: "UpCycle Pro"
+  version: "1.0.0"
+  theme:
+    primary_color: "#00aaff"
+    background_gradient:
+      - "#1a1a2e"
+      - "#16213e" 
+      - "#0f3460"
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "./logs/upcycle_pro.log"
+  
+# Database Configuration (future use)
+database:
+  type: "sqlite"
+  path: "./data/upcycle_pro.db"
+  
+# Sistema de Monitoreo
+monitoring:
+  enabled: true
+  save_images: true
+  images_path: "./data/captured_images"
+  statistics_interval: 60  # segundos

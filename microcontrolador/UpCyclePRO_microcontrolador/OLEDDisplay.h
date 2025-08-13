@@ -36,8 +36,8 @@ public:
   OLEDDisplay();
   bool begin();
   
-  // Pantalla principal con ícono de reciclaje
-  void showRecycleScreen();
+  // Pantalla principal UpCyclePro
+  void showMainScreen();
   
   // Mostrar materiales detectados
   void showVidrio();

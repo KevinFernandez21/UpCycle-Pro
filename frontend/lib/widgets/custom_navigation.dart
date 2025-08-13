@@ -64,7 +64,8 @@ class _CustomNavigationState extends State<CustomNavigation>
         children: [
           _buildNavTab('[H]', 'HOME', 0),
           _buildNavTab('[C]', 'CÁMARA', 1),
-          _buildNavTab('[*]', 'CONFIG', 2),
+          _buildNavTab('[M]', 'MONITOR', 2),
+          _buildNavTab('[*]', 'CONFIG', 3),
         ],
       ),
     );

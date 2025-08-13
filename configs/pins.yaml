@@ -1,7 +1,0 @@
-# Define los pines GPIO y la configuración del PCA9685
-pines:
-  pir: 17
-  motor: 18
-  servo_plastico: 0
-  servo_carton: 1
-  servo_vidrio: 2

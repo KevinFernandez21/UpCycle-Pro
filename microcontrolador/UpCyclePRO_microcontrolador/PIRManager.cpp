@@ -83,7 +83,7 @@ void PIRManager::printStatus() {
   bool state1 = digitalRead(PIR1_PIN);
   bool state2 = digitalRead(PIR2_PIN);
   bool state3 = digitalRead(PIR3_PIN);
-  
+  ¿
   Serial.println("=== ESTADO SENSORES PIR ===");
   Serial.println("PIR1 (Vidrio):   " + String(state1 ? "🔴 ACTIVO" : "⚫ INACTIVO"));
   Serial.println("PIR2 (Plástico): " + String(state2 ? "🔴 ACTIVO" : "⚫ INACTIVO"));
