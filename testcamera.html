@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32-CAM Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5rem;
+            background: linear-gradient(45deg, #00f5ff, #00bfff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 20px rgba(0, 245, 255, 0.3);
+        }
+
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
+            margin-bottom: 30px;
+            border: 2px solid rgba(0, 245, 255, 0.3);
+        }
+
+        #videoStream {
+            width: 100%;
+            height: auto;
+            display: block;
+            max-height: 70vh;
+            object-fit: contain;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            background: linear-gradient(145deg, #00bfff, #0080ff);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(0, 191, 255, 0.3);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 191, 255, 0.5);
+            background: linear-gradient(145deg, #00f5ff, #00bfff);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .status {
+            text-align: center;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border-left: 4px solid #00bfff;
+        }
+
+        .status.connected {
+            border-left-color: #00ff88;
+            background: rgba(0, 255, 136, 0.1);
+        }
+
+        .status.error {
+            border-left-color: #ff4444;
+            background: rgba(255, 68, 68, 0.1);
+        }
+
+        .ip-info {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            font-family: 'Courier New', monospace;
+            margin-bottom: 20px;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.2rem;
+            color: #00bfff;
+        }
+
+        .spinner {
+            border: 3px solid rgba(0, 191, 255, 0.3);
+            border-top: 3px solid #00bfff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-msg {
+            color: #ff6b6b;
+            text-align: center;
+            padding: 20px;
+            background: rgba(255, 107, 107, 0.1);
+            border-radius: 10px;
+            margin-top: 15px;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+                margin: 10px;
+            }
+            
+            h1 {
+                font-size: 2rem;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .btn {
+                width: 200px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📹 ESP32-CAM Viewer</h1>
+        
+        <div class="ip-info">
+            <strong>IP de la Cámara:</strong> 192.168.137.78
+        </div>
+
+        <div id="status" class="status">
+            <span id="statusText">Conectando a la cámara...</span>
+        </div>
+
+        <div class="video-container">
+            <img id="videoStream" alt="Stream de ESP32-CAM">
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                Cargando stream...
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn" onclick="reconnectStream()">🔄 Reconectar</button>
+            <button class="btn" onclick="captureImage()">📸 Capturar</button>
+            <button class="btn" onclick="toggleFullscreen()">🖥️ Pantalla Completa</button>
+            <button class="btn" onclick="refreshPage()">🔃 Refrescar</button>
+        </div>
+
+        <div id="errorMsg" class="error-msg" style="display: none;"></div>
+    </div>
+
+    <script>
+        const ESP32_IP = '192.168.137.78';
+        const STREAM_URL = `http://${ESP32_IP}:81/stream`;
+        const CAPTURE_URL = `http://${ESP32_IP}/capture`;
+        
+        const videoElement = document.getElementById('videoStream');
+        const statusElement = document.getElementById('status');
+        const statusText = document.getElementById('statusText');
+        const loadingElement = document.getElementById('loading');
+        const errorMsg = document.getElementById('errorMsg');
+
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+
+        function updateStatus(message, type = 'info') {
+            statusText.textContent = message;
+            statusElement.className = `status ${type}`;
+        }
+
+        function showError(message) {
+            errorMsg.textContent = message;
+            errorMsg.style.display = 'block';
+            updateStatus('Error de conexión', 'error');
+        }
+
+        function hideError() {
+            errorMsg.style.display = 'none';
+        }
+
+        function initStream() {
+            hideError();
+            loadingElement.style.display = 'block';
+            updateStatus('Conectando al stream...', 'info');
+
+            videoElement.onload = function() {
+                loadingElement.style.display = 'none';
+                updateStatus('Stream conectado y funcionando', 'connected');
+                reconnectAttempts = 0;
+            };
+
+            videoElement.onerror = function() {
+                loadingElement.style.display = 'none';
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    updateStatus(`Reintentando conexión... (${reconnectAttempts}/${maxReconnectAttempts})`, 'error');
+                    setTimeout(() => {
+                        videoElement.src = STREAM_URL + '?t=' + new Date().getTime();
+                    }, 2000);
+                } else {
+                    showError(`No se pudo conectar con la ESP32-CAM en ${ESP32_IP}. Verifica que esté encendida y en la misma red.`);
+                }
+            };
+
+            // Agregar timestamp para evitar cache
+            videoElement.src = STREAM_URL + '?t=' + new Date().getTime();
+        }
+
+        function reconnectStream() {
+            reconnectAttempts = 0;
+            initStream();
+        }
+
+        function captureImage() {
+            updateStatus('Capturando imagen...', 'info');
+            
+            // Capturar el frame actual del video stream
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Usar las dimensiones actuales del video
+            canvas.width = videoElement.naturalWidth || videoElement.width;
+            canvas.height = videoElement.naturalHeight || videoElement.height;
+            
+            // Dibujar el frame actual del video en el canvas
+            ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+            
+            // Crear enlace de descarga
+            const link = document.createElement('a');
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            link.download = `ESP32-CAM_${timestamp}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+            
+            updateStatus('Imagen capturada y descargada', 'connected');
+            
+            // Breve feedback visual
+            videoElement.style.filter = 'brightness(1.5)';
+            setTimeout(() => {
+                videoElement.style.filter = 'none';
+            }, 200);
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                videoElement.requestFullscreen().catch(err => {
+                    showError(`Error al activar pantalla completa: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function refreshPage() {
+            location.reload();
+        }
+
+        // Inicializar el stream al cargar la página
+        window.onload = function() {
+            initStream();
+            
+            // Reconectar automáticamente cada 30 segundos si hay error
+            setInterval(() => {
+                if (statusElement.classList.contains('error')) {
+                    reconnectStream();
+                }
+            }, 30000);
+        };
+
+        // Detectar cuando la ventana recupera el foco para reconectar
+        window.onfocus = function() {
+            if (statusElement.classList.contains('error')) {
+                setTimeout(reconnectStream, 1000);
+            }
+        };
+    </script>
+</body>
+</html>
