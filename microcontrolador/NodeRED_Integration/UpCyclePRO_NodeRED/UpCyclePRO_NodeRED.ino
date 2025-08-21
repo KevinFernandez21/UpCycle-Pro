@@ -29,12 +29,12 @@
 #include "SimpleClassifier.h"
 
 // Configuración WiFi
-const char* ssid = "NETLIFE-SANCHEZ";
-const char* password = "kd200421";
+const char* ssid = "hnaranja21";
+const char* password = "hola1234";
 
 // Configuración MQTT
-const char* mqtt_server = "localhost";  // Cambiar por IP de Node-RED
-const int mqtt_port = 1883;
+const char* mqtt_server = "192.168.100.9";  // Cambiar por IP de Node-RED
+const int mqtt_port = 1880;
 const char* mqtt_client_id = "upcyclepro_esp32";
 
 // Tópicos MQTT
@@ -162,7 +162,7 @@ void handleCommand(JsonDocument& cmd) {
     
     if (action == "classify") {
       int material = cmd["material"]; // 1=vidrio, 2=plastico, 3=metal
-      classifier.setMode(material);
+      classifier.setMode(getMaterialString(material));
       
       // Responder confirmación
       StaticJsonDocument<200> response;
@@ -286,7 +286,7 @@ void setupWebServer() {
         
         if (doc.containsKey("material")) {
           int material = doc["material"];
-          classifier.setMode(material);
+          classifier.setMode(getMaterialString(material));
           
           StaticJsonDocument<200> response;
           response["action"] = "classify";

@@ -43,9 +43,8 @@ const int pwm_resolution = 8;    // 8 bits (0-255)
 void setup() {
   Serial.begin(115200);
   
-  // Configurar PWM para el motor
-  ledcSetup(pwm_channel, pwm_frequency, pwm_resolution);
-  ledcAttachPin(MOTOR_PIN, pwm_channel);
+  // Configurar PWM para el motor (nuevo API de ESP32 Arduino Core 3.x)
+  ledcAttach(MOTOR_PIN, pwm_frequency, pwm_resolution);
   
   // Configurar LED indicador
   pinMode(LED_PIN, OUTPUT);
@@ -249,8 +248,8 @@ void setMotorSpeed(int speed) {
   // Limitar rango
   speed = constrain(speed, 0, 255);
   
-  // Aplicar PWM
-  ledcWrite(pwm_channel, speed);
+  // Aplicar PWM (nuevo API de ESP32 Arduino Core 3.x)
+  ledcWrite(MOTOR_PIN, speed);
   
   // Actualizar variables
   motor_speed = speed;

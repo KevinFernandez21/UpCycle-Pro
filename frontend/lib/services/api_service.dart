@@ -80,7 +80,7 @@ class ApiService {
       var response = await http.Response.fromStream(streamedResponse);
       
       final result = _handleResponse(response);
-      return List<Map<String, dynamic>>.from(result);
+      return List<Map<String, dynamic>>.from(result['predictions'] ?? []);
     } catch (e) {
       throw ApiException('Error subiendo múltiples imágenes: $e');
     }
