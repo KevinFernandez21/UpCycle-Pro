@@ -33,7 +33,7 @@ const char* ssid = "hnaranja21";
 const char* password = "hola1234";
 
 // Configuración MQTT
-const char* mqtt_server = "192.168.100.9";  // Cambiar por IP de Node-RED
+const char* mqtt_server = "192.168.137.1";
 const int mqtt_port = 1880;
 const char* mqtt_client_id = "upcyclepro_esp32";
 

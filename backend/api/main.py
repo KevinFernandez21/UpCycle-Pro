@@ -11,6 +11,7 @@ import uvicorn
 from datetime import datetime
 import os
 from routes.microcontroller import router as microcontroller_router
+from routes.rnn_predictions import router as rnn_router
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -18,9 +19,9 @@ logger = logging.getLogger(__name__)
 
 # Configuración de la aplicación
 app = FastAPI(
-    title="Material Classification API",
-    description="API para clasificación de materiales (vidrio, plástico, metal) usando CNN",
-    version="1.0.0",
+    title="UpCycle Pro API",
+    description="API para clasificación de materiales usando CNN y predicción de volúmenes con RNN",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -36,6 +37,9 @@ app.add_middleware(
 
 # Incluir rutas del microcontrolador
 app.include_router(microcontroller_router, prefix="/microcontroller", tags=["microcontroller"])
+
+# Incluir rutas de predicción RNN
+app.include_router(rnn_router, prefix="/rnn", tags=["rnn-predictions"])
 
 # Variables globales
 model = None
@@ -54,7 +58,7 @@ def create_dummy_model():
     model = Sequential([
         base_model,
         GlobalAveragePooling2D(),
-        Dense(128, activation='relu'),
+        Dense(128, acti vation='relu'),
         Dense(3, activation='softmax')
     ])
 

@@ -1,0 +1,109 @@
+service: upcycle-pro-rnn
+
+provider:
+  name: aws
+  runtime: python3.9
+  region: us-east-1
+  timeout: 900  # 15 minutos para cargar modelo
+  memorySize: 3008  # Máxima memoria para Lambda
+  environment:
+    DYNAMODB_TABLE: ${self:service}-material-volume-${opt:stage, self:provider.stage}
+    PREDICTIONS_TABLE: ${self:service}-predictions-${opt:stage, self:provider.stage}
+    MODEL_BUCKET: ${self:service}-models-${opt:stage, self:provider.stage}
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:Query
+        - dynamodb:Scan
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+        - dynamodb:DeleteItem
+      Resource:
+        - "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}"
+        - "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.PREDICTIONS_TABLE}"
+    - Effect: Allow
+      Action:
+        - s3:GetObject
+        - s3:PutObject
+      Resource:
+        - "arn:aws:s3:::${self:provider.environment.MODEL_BUCKET}/*"
+
+functions:
+  predictVolume:
+    handler: aws_rnn_service.lambda_handler
+    description: Predice volumen de materiales usando RNN Chronos
+    events:
+      - http:
+          path: predict
+          method: post
+          cors: true
+      - http:
+          path: predict
+          method: get
+          cors: true
+    
+  scheduledPrediction:
+    handler: aws_rnn_service.scheduled_prediction_handler
+    description: Predicción automática diaria de volumen
+    events:
+      - schedule:
+          rate: rate(1 day)  # Ejecutar diariamente
+          enabled: true
+    
+  dataIngestion:
+    handler: data_ingestion.lambda_handler
+    description: Procesa datos de volumen de material desde microcontroladores
+    events:
+      - http:
+          path: ingest
+          method: post
+          cors: true
+
+resources:
+  Resources:
+    MaterialVolumeTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.DYNAMODB_TABLE}
+        AttributeDefinitions:
+          - AttributeName: material_id
+            AttributeType: S
+          - AttributeName: timestamp
+            AttributeType: S
+        KeySchema:
+          - AttributeName: material_id
+            KeyType: HASH
+          - AttributeName: timestamp
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+    
+    PredictionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.PREDICTIONS_TABLE}
+        AttributeDefinitions:
+          - AttributeName: prediction_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: prediction_id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+    
+    ModelBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:provider.environment.MODEL_BUCKET}
+        VersioningConfiguration:
+          Status: Enabled
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: true
+    slim: true
+    strip: false

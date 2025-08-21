@@ -1,5 +1,5 @@
 class ConfigService {
-  static const String apiBaseUrl = 'http://localhost:8000';
+  static const String apiBaseUrl = 'http://192.168.137.102:8000';
   static const String esp32BaseUrl = 'http://192.168.0.109';
   static const Duration apiTimeout = Duration(seconds: 30);
   
