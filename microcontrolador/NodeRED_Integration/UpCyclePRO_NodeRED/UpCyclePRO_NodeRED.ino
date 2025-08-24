@@ -1,111 +1,105 @@
 /*
-  CLASIFICADORA DE MATERIALES - INTEGRACIÓN NODE-RED
-  =================================================
+  CLASIFICADORA DE MATERIALES - INTEGRACIÓN BACKEND API
+  ===================================================
   
-  Adaptación del sistema UpCyclePRO para Node-RED:
-  - Comunicación WiFi + MQTT
-  - API REST para control remoto
-  - WebSocket para datos en tiempo real
+  Sistema UpCyclePRO con comunicación directa al backend FastAPI:
+  - Comunicación WiFi + HTTP API
+  - Auto-registro con backend
+  - Envío periódico de datos de sensores
+  - Recepción de comandos del backend
   - JSON para todos los mensajes
   
-  Tópicos MQTT:
-  - upcyclepro/command (IN) - Recibe comandos
-  - upcyclepro/status (OUT) - Estado del sistema
-  - upcyclepro/sensor (OUT) - Datos de sensores
-  - upcyclepro/material (OUT) - Material procesado
-  
-  API REST:
-  - GET /status - Estado actual
-  - POST /classify - Enviar comando de clasificación
-  - GET /sensors - Lectura de sensores
-  - POST /stop - Detener sistema
+  Endpoints Backend:
+  - POST /api/esp32-control/sensors - Enviar datos de sensores
+  - POST /api/classification/result - Enviar resultado de clasificación
+  - GET /status - Estado local del dispositivo
+  - POST /classify - Comando de clasificación local
+  - GET /sensors - Lectura de sensores local
 */
 
 #include <WiFi.h>
-#include <PubSubClient.h>
+#include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <WebServer.h>
-#include <WebSocketsServer.h>
 #include "SimpleClassifier.h"
 
 // Configuración WiFi
 const char* ssid = "hnaranja21";
-const char* password = "hola1234";
+const char* password = "hola12345";
 
-// Configuración MQTT
-const char* mqtt_server = "192.168.100.9";  // Cambiar por IP de Node-RED
-const int mqtt_port = 1880;
-const char* mqtt_client_id = "upcyclepro_esp32";
+// Configuración Backend API
+const char* api_server = "192.168.1.100";  // IP del servidor FastAPI
+const int api_port = 8000;
+String device_id = "esp32_main_001";
+String device_type = "esp32-control";
 
-// Tópicos MQTT
-const char* topic_command = "upcyclepro/command";
-const char* topic_status = "upcyclepro/status";
-const char* topic_sensor = "upcyclepro/sensor";
-const char* topic_material = "upcyclepro/material";
-
-// Instancias
-WiFiClient espClient;
-PubSubClient mqtt(espClient);
+// Servidor web local para comunicación directa
 WebServer webServer(80);
-WebSocketsServer webSocket(81);
 SimpleClassifier classifier;
 
-// Variables de estado
-unsigned long lastStatusSend = 0;
-unsigned long lastSensorRead = 0;
-const unsigned long STATUS_INTERVAL = 5000;   // 5 segundos
-const unsigned long SENSOR_INTERVAL = 1000;   // 1 segundo
+// Variables de estado y timing
+unsigned long lastSensorSend = 0;
+unsigned long lastStatusCheck = 0;
+unsigned long lastBackendPing = 0;
+const unsigned long SENSOR_INTERVAL = 5000;    // 5 segundos
+const unsigned long STATUS_INTERVAL = 30000;   // 30 segundos  
+const unsigned long BACKEND_PING_INTERVAL = 60000; // 1 minuto
+
+// Estado de conexión con backend
+bool backendConnected = false;
+unsigned long backendLastSeen = 0;
 
 void setup() {
   Serial.begin(115200);
+  Serial.println("========================================");
+  Serial.println("   CLASIFICADORA ESP32 - API BACKEND");
+  Serial.println("========================================");
   
   // Inicializar clasificador
   if (!classifier.begin()) {
-    Serial.println("❌ Error inicializando sistema");
+    Serial.println("❌ Error inicializando sistema clasificador");
     while(1) delay(1000);
   }
   
   // Conectar WiFi
   setupWiFi();
   
-  // Configurar MQTT
-  mqtt.setServer(mqtt_server, mqtt_port);
-  mqtt.setCallback(onMqttMessage);
-  
-  // Configurar servidor web
+  // Configurar servidor web local
   setupWebServer();
   
-  // Configurar WebSocket
-  webSocket.begin();
-  webSocket.onEvent(onWebSocketEvent);
+  Serial.println("🚀 Sistema API Backend listo");
+  Serial.println("🔗 Backend API: http://" + String(api_server) + ":" + String(api_port));
+  Serial.println("🌐 Servidor local: http://" + WiFi.localIP().toString() + ":80");
   
-  Serial.println("🚀 Sistema Node-RED listo");
-  sendStatusUpdate();
+  // Registrar dispositivo con el backend
+  registerWithBackend();
+  
+  // Enviar estado inicial
+  sendSensorDataToBackend();
 }
 
 void loop() {
-  // Mantener conexiones
-  if (!mqtt.connected()) {
-    reconnectMQTT();
-  }
-  mqtt.loop();
-  
+  // Manejar servidor web local
   webServer.handleClient();
-  webSocket.loop();
   
   // Actualizar clasificador
   classifier.update();
   
-  // Enviar estado periódicamente
-  if (millis() - lastStatusSend > STATUS_INTERVAL) {
-    sendStatusUpdate();
-    lastStatusSend = millis();
+  // Enviar datos de sensores al backend periódicamente
+  if (millis() - lastSensorSend > SENSOR_INTERVAL) {
+    sendSensorDataToBackend();
+    lastSensorSend = millis();
   }
   
-  // Enviar datos de sensores
-  if (millis() - lastSensorRead > SENSOR_INTERVAL) {
-    sendSensorData();
-    lastSensorRead = millis();
+  // Ping al backend para mantener conexión
+  if (millis() - lastBackendPing > BACKEND_PING_INTERVAL) {
+    pingBackend();
+    lastBackendPing = millis();
+  }
+  
+  // Verificar si backend está disponible
+  if (millis() - backendLastSeen > STATUS_INTERVAL * 2) {
+    backendConnected = false;
   }
   
   delay(100);
@@ -123,198 +117,310 @@ void setupWiFi() {
   Serial.println();
   Serial.print("📶 WiFi conectado - IP: ");
   Serial.println(WiFi.localIP());
+  Serial.print("📶 Señal WiFi: ");
+  Serial.print(WiFi.RSSI());
+  Serial.println(" dBm");
 }
 
-void reconnectMQTT() {
-  while (!mqtt.connected()) {
-    Serial.print("🔄 Conectando MQTT...");
-    
-    if (mqtt.connect(mqtt_client_id)) {
-      Serial.println(" ✅ Conectado");
-      mqtt.subscribe(topic_command);
-      sendStatusUpdate();
+// =================== COMUNICACIÓN BACKEND API ===================
+
+void registerWithBackend() {
+  Serial.println("📡 Registrando dispositivo con backend API...");
+  
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("❌ WiFi no conectado para registro");
+    return;
+  }
+  
+  HTTPClient http;
+  String url = "http://" + String(api_server) + ":" + String(api_port) + "/api/esp32-cam/register";
+  
+  http.begin(url);
+  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+  
+  String postData = "device_id=" + device_id + "&ip_address=" + WiFi.localIP().toString();
+  
+  int httpResponseCode = http.POST(postData);
+  
+  if (httpResponseCode > 0) {
+    String response = http.getString();
+    if (httpResponseCode == 200 || response.indexOf("success") > 0) {
+      Serial.println("✅ Dispositivo registrado exitosamente en backend");
+      backendConnected = true;
+      backendLastSeen = millis();
     } else {
-      Serial.print(" ❌ Error: ");
-      Serial.println(mqtt.state());
-      delay(5000);
+      Serial.println("⚠️ Error en registro, código: " + String(httpResponseCode));
+      Serial.println("Respuesta: " + response);
     }
-  }
-}
-
-void onMqttMessage(char* topic, byte* payload, unsigned int length) {
-  String message = "";
-  for (int i = 0; i < length; i++) {
-    message += (char)payload[i];
+  } else {
+    Serial.println("❌ Error conectando al backend para registro: " + String(httpResponseCode));
   }
   
-  Serial.println("📨 MQTT: " + message);
-  
-  // Parsear JSON
-  StaticJsonDocument<200> doc;
-  if (deserializeJson(doc, message) == DeserializationError::Ok) {
-    handleCommand(doc);
-  }
+  http.end();
 }
 
-void handleCommand(JsonDocument& cmd) {
-  if (cmd.containsKey("action")) {
-    String action = cmd["action"];
+void sendSensorDataToBackend() {
+  if (WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+  
+  HTTPClient http;
+  String url = "http://" + String(api_server) + ":" + String(api_port) + "/api/esp32-control/sensors";
+  
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  
+  // Crear JSON con datos de sensores
+  StaticJsonDocument<300> sensorData;
+  sensorData["device_id"] = device_id;
+  sensorData["timestamp"] = millis();
+  sensorData["pir1"] = digitalRead(26);  // PIR Vidrio
+  sensorData["pir2"] = digitalRead(27);  // PIR Plástico
+  sensorData["pir3"] = digitalRead(14);  // PIR Metal
+  sensorData["conveyor_active"] = (classifier.getState() == WAITING);
+  sensorData["weight1"] = 0.0; // Placeholder para sensores de peso
+  sensorData["weight2"] = 0.0;
+  sensorData["weight3"] = 0.0;
+  
+  // Información adicional del dispositivo
+  JsonObject servo_positions = sensorData.createNestedObject("servo_positions");
+  servo_positions["servo1"] = 90; // Posiciones actuales de servos
+  servo_positions["servo2"] = 90;
+  servo_positions["servo3"] = 90;
+  
+  String jsonString;
+  serializeJson(sensorData, jsonString);
+  
+  int httpResponseCode = http.POST(jsonString);
+  
+  if (httpResponseCode > 0) {
+    String response = http.getString();
+    backendConnected = true;
+    backendLastSeen = millis();
     
-    if (action == "classify") {
-      int material = cmd["material"]; // 1=vidrio, 2=plastico, 3=metal
-      classifier.setMode(getMaterialString(material));
+    // Procesar comandos pendientes del backend
+    processBackendResponse(response);
+    
+    if (httpResponseCode != 200) {
+      Serial.println("⚠️ Respuesta backend: " + String(httpResponseCode));
+    }
+  } else {
+    Serial.println("❌ Error enviando sensores al backend: " + String(httpResponseCode));
+    backendConnected = false;
+  }
+  
+  http.end();
+}
+
+void processBackendResponse(String response) {
+  StaticJsonDocument<1000> doc;
+  
+  if (deserializeJson(doc, response) != DeserializationError::Ok) {
+    return; // JSON inválido
+  }
+  
+  // Verificar comandos pendientes
+  if (doc.containsKey("pending_commands")) {
+    JsonArray commands = doc["pending_commands"];
+    
+    for (JsonObject cmd : commands) {
+      String command = cmd["command"];
+      JsonObject parameters = cmd["parameters"];
       
-      // Responder confirmación
-      StaticJsonDocument<200> response;
-      response["action"] = "classify";
-      response["material"] = material;
-      response["status"] = "started";
-      response["timestamp"] = millis();
-      publishJson(topic_status, response);
+      Serial.println("🤖 Ejecutando comando del backend: " + command);
       
-    } else if (action == "stop") {
-      classifier.stopSystem();
-      
-      StaticJsonDocument<200> response;
-      response["action"] = "stop";
-      response["status"] = "stopped";
-      response["timestamp"] = millis();
-      publishJson(topic_status, response);
-      
-    } else if (action == "get_status") {
-      sendStatusUpdate();
+      if (command == "move_servo") {
+        String material = parameters["material"];
+        int position = parameters["position"];
+        
+        executeServoCommand(material, position);
+        
+      } else if (command == "classify") {
+        String material = parameters["material"] | "auto";
+        
+        executeClassificationCommand(material);
+        
+      } else if (command == "stop") {
+        executeStopCommand();
+        
+      } else if (command == "start_conveyor") {
+        classifier.startContinuousOperation();
+        Serial.println("🔄 Banda transportadora iniciada por comando backend");
+        
+      } else {
+        Serial.println("⚠️ Comando desconocido: " + command);
+      }
     }
   }
 }
 
-void sendStatusUpdate() {
-  StaticJsonDocument<300> status;
+void executeServoCommand(String material, int position) {
+  Serial.println("🔧 Ejecutando comando servo - Material: " + material + ", Posición: " + String(position));
   
-  status["device"] = "upcyclepro";
-  status["timestamp"] = millis();
-  status["state"] = getStateString(classifier.getState());
-  status["mode"] = classifier.getMode();
-  status["material"] = getMaterialString(classifier.getMode());
-  status["wifi_rssi"] = WiFi.RSSI();
-  status["uptime"] = millis() / 1000;
+  // Configurar modo del clasificador
+  classifier.setMode(material);
   
-  publishJson(topic_status, status);
-  broadcastWebSocket(status);
-}
-
-void sendSensorData() {
-  StaticJsonDocument<200> sensors;
-  
-  sensors["device"] = "upcyclepro";
-  sensors["timestamp"] = millis();
-  sensors["pir1"] = digitalRead(26);  // PIR Vidrio
-  sensors["pir2"] = digitalRead(27);  // PIR Plástico
-  sensors["pir3"] = digitalRead(14);  // PIR Metal
-  sensors["motor"] = classifier.getState() == WAITING ? true : false;
-  
-  publishJson(topic_sensor, sensors);
-}
-
-void publishJson(const char* topic, JsonDocument& doc) {
-  String output;
-  serializeJson(doc, output);
-  mqtt.publish(topic, output.c_str());
-}
-
-void broadcastWebSocket(JsonDocument& doc) {
-  String output;
-  serializeJson(doc, output);
-  webSocket.broadcastTXT(output);
-}
-
-String getStateString(SystemState state) {
-  switch(state) {
-    case IDLE: return "idle";
-    case WAITING: return "waiting";
-    case PROCESSING: return "processing";
-    default: return "unknown";
+  // Simular activación del servo correspondiente
+  if (material == "glass" || material == "vidrio") {
+    // Activar servo 1 para vidrio
+    Serial.println("🔹 Activando servo 1 (Vidrio) -> " + String(position) + "°");
+  } else if (material == "plastic" || material == "plastico") {
+    // Activar servo 2 para plástico
+    Serial.println("🔸 Activando servo 2 (Plástico) -> " + String(position) + "°");
+  } else if (material == "metal") {
+    // Activar servo 3 para metal
+    Serial.println("🔶 Activando servo 3 (Metal) -> " + String(position) + "°");
   }
+  
+  // Simular tiempo de activación del servo
+  delay(2000);
+  
+  // Enviar confirmación al backend
+  sendClassificationResultToBackend(material, 0.95, position);
 }
 
-String getMaterialString(int mode) {
-  switch(mode) {
-    case 1: return "vidrio";
-    case 2: return "plastico";
-    case 3: return "metal";
-    default: return "none";
+void executeClassificationCommand(String material) {
+  Serial.println("🧠 Iniciando proceso de clasificación: " + material);
+  
+  if (material != "auto") {
+    classifier.setMode(material);
   }
+  
+  classifier.startContinuousOperation();
+  
+  // Simular proceso de clasificación
+  delay(1000);
+  
+  // Enviar resultado simulado
+  float confidence = 0.85 + (random(0, 15) / 100.0); // Confianza simulada 85-100%
+  int servoPosition = getServoPositionForMaterial(material);
+  
+  sendClassificationResultToBackend(material, confidence, servoPosition);
 }
+
+void executeStopCommand() {
+  Serial.println("🛑 Deteniendo sistema por comando backend");
+  classifier.stopSystem();
+}
+
+int getServoPositionForMaterial(String material) {
+  if (material == "glass" || material == "vidrio") return 45;
+  if (material == "plastic" || material == "plastico") return 90;
+  if (material == "metal") return 135;
+  return 90; // Posición por defecto
+}
+
+void sendClassificationResultToBackend(String material, float confidence, int servoPosition) {
+  HTTPClient http;
+  String url = "http://" + String(api_server) + ":" + String(api_port) + "/api/classification/result";
+  
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  
+  StaticJsonDocument<300> result;
+  result["device_id"] = device_id;
+  result["material"] = material;
+  result["confidence"] = confidence;
+  result["servo_position"] = servoPosition;
+  result["processing_time"] = 2.5; // Tiempo simulado en segundos
+  result["timestamp"] = millis();
+  
+  String jsonString;
+  serializeJson(result, jsonString);
+  
+  int httpResponseCode = http.POST(jsonString);
+  
+  if (httpResponseCode == 200) {
+    Serial.println("📊 Resultado enviado al backend: " + material + " (" + String(confidence, 2) + ")");
+  } else {
+    Serial.println("❌ Error enviando resultado al backend: " + String(httpResponseCode));
+  }
+  
+  http.end();
+}
+
+void pingBackend() {
+  HTTPClient http;
+  String url = "http://" + String(api_server) + ":" + String(api_port) + "/health";
+  
+  http.begin(url);
+  http.setTimeout(5000); // 5 segundos timeout
+  
+  int httpResponseCode = http.GET();
+  
+  if (httpResponseCode == 200) {
+    backendConnected = true;
+    backendLastSeen = millis();
+  } else {
+    backendConnected = false;
+    Serial.println("⚠️ Backend no responde al ping: " + String(httpResponseCode));
+  }
+  
+  http.end();
+}
+
+// =================== SERVIDOR WEB LOCAL ===================
 
 void setupWebServer() {
-  // CORS headers
+  // Configurar CORS para todas las rutas
   webServer.onNotFound([]() {
-    webServer.sendHeader("Access-Control-Allow-Origin", "*");
-    webServer.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    webServer.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    setCORSHeaders();
     
     if (webServer.method() == HTTP_OPTIONS) {
       webServer.send(200);
       return;
     }
-    webServer.send(404, "text/plain", "Not Found");
+    webServer.send(404, "application/json", "{\"error\":\"Endpoint no encontrado\"}");
   });
   
-  // GET /status - Estado actual
+  // GET /status - Estado actual del dispositivo
   webServer.on("/status", HTTP_GET, []() {
-    webServer.sendHeader("Access-Control-Allow-Origin", "*");
+    setCORSHeaders();
     
-    StaticJsonDocument<300> response;
-    response["device"] = "upcyclepro";
+    StaticJsonDocument<400> response;
+    response["device_id"] = device_id;
+    response["device_type"] = device_type;
     response["timestamp"] = millis();
     response["state"] = getStateString(classifier.getState());
     response["mode"] = classifier.getMode();
-    response["material"] = getMaterialString(classifier.getMode());
     response["ip"] = WiFi.localIP().toString();
+    response["wifi_rssi"] = WiFi.RSSI();
+    response["backend_connected"] = backendConnected;
+    response["uptime"] = millis() / 1000;
+    response["free_heap"] = ESP.getFreeHeap();
     
     String output;
     serializeJson(response, output);
     webServer.send(200, "application/json", output);
   });
   
-  // POST /classify - Clasificar material
+  // POST /classify - Comando de clasificación local
   webServer.on("/classify", HTTP_POST, []() {
-    webServer.sendHeader("Access-Control-Allow-Origin", "*");
+    setCORSHeaders();
     
-    if (webServer.hasArg("plain")) {
-      StaticJsonDocument<200> doc;
-      if (deserializeJson(doc, webServer.arg("plain")) == DeserializationError::Ok) {
-        
-        if (doc.containsKey("material")) {
-          int material = doc["material"];
-          classifier.setMode(getMaterialString(material));
-          
-          StaticJsonDocument<200> response;
-          response["action"] = "classify";
-          response["material"] = material;
-          response["material_name"] = getMaterialString(material);
-          response["status"] = "started";
-          response["timestamp"] = millis();
-          
-          String output;
-          serializeJson(response, output);
-          webServer.send(200, "application/json", output);
-          return;
-        }
-      }
+    if (!webServer.hasArg("plain")) {
+      webServer.send(400, "application/json", "{\"error\":\"Body JSON requerido\"}");
+      return;
     }
     
-    webServer.send(400, "application/json", "{\"error\":\"Invalid request\"}");
-  });
-  
-  // POST /stop - Detener sistema
-  webServer.on("/stop", HTTP_POST, []() {
-    webServer.sendHeader("Access-Control-Allow-Origin", "*");
+    StaticJsonDocument<200> doc;
+    if (deserializeJson(doc, webServer.arg("plain")) != DeserializationError::Ok) {
+      webServer.send(400, "application/json", "{\"error\":\"JSON inválido\"}");
+      return;
+    }
     
-    classifier.stopSystem();
+    if (!doc.containsKey("material")) {
+      webServer.send(400, "application/json", "{\"error\":\"Campo 'material' requerido\"}");
+      return;
+    }
+    
+    String material = doc["material"];
+    executeClassificationCommand(material);
     
     StaticJsonDocument<200> response;
-    response["action"] = "stop";
-    response["status"] = "stopped";
+    response["status"] = "success";
+    response["message"] = "Clasificación iniciada";
+    response["material"] = material;
     response["timestamp"] = millis();
     
     String output;
@@ -322,17 +428,52 @@ void setupWebServer() {
     webServer.send(200, "application/json", output);
   });
   
-  // GET /sensors - Datos de sensores
+  // GET /sensors - Lectura de sensores actual
   webServer.on("/sensors", HTTP_GET, []() {
-    webServer.sendHeader("Access-Control-Allow-Origin", "*");
+    setCORSHeaders();
     
-    StaticJsonDocument<200> response;
-    response["device"] = "upcyclepro";
+    StaticJsonDocument<300> response;
+    response["device_id"] = device_id;
     response["timestamp"] = millis();
     response["pir1"] = digitalRead(26);
     response["pir2"] = digitalRead(27);
     response["pir3"] = digitalRead(14);
-    response["motor"] = classifier.getState() == WAITING ? true : false;
+    response["conveyor_active"] = (classifier.getState() == WAITING);
+    response["weight1"] = 0.0;
+    response["weight2"] = 0.0;
+    response["weight3"] = 0.0;
+    
+    String output;
+    serializeJson(response, output);
+    webServer.send(200, "application/json", output);
+  });
+  
+  // POST /stop - Detener sistema
+  webServer.on("/stop", HTTP_POST, []() {
+    setCORSHeaders();
+    
+    executeStopCommand();
+    
+    StaticJsonDocument<200> response;
+    response["status"] = "success";
+    response["message"] = "Sistema detenido";
+    response["timestamp"] = millis();
+    
+    String output;
+    serializeJson(response, output);
+    webServer.send(200, "application/json", output);
+  });
+  
+  // POST /start - Iniciar sistema
+  webServer.on("/start", HTTP_POST, []() {
+    setCORSHeaders();
+    
+    classifier.startContinuousOperation();
+    
+    StaticJsonDocument<200> response;
+    response["status"] = "success";
+    response["message"] = "Sistema iniciado";
+    response["timestamp"] = millis();
     
     String output;
     serializeJson(response, output);
@@ -340,100 +481,59 @@ void setupWebServer() {
   });
   
   webServer.begin();
-  Serial.println("🌐 Servidor web iniciado en puerto 80");
+  Serial.println("🌐 Servidor web local iniciado en puerto 80");
 }
 
-void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
-  switch(type) {
-    case WStype_DISCONNECTED:
-      Serial.printf("🔌 WebSocket [%u] desconectado\n", num);
-      break;
-      
-    case WStype_CONNECTED: {
-      IPAddress ip = webSocket.remoteIP(num);
-      Serial.printf("🔌 WebSocket [%u] conectado desde %d.%d.%d.%d\n", 
-                    num, ip[0], ip[1], ip[2], ip[3]);
-      // Enviar estado actual al conectar
-      sendStatusUpdate();
-      break;
-    }
-    
-    case WStype_TEXT: {
-      String message = String((char*)payload);
-      Serial.printf("📨 WebSocket [%u]: %s\n", num, message.c_str());
-      
-      // Parsear comando JSON
-      StaticJsonDocument<200> doc;
-      if (deserializeJson(doc, message) == DeserializationError::Ok) {
-        handleCommand(doc);
-      }
-      break;
-    }
-    
-    default:
-      break;
+void setCORSHeaders() {
+  webServer.sendHeader("Access-Control-Allow-Origin", "*");
+  webServer.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  webServer.sendHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+}
+
+String getStateString(SystemState state) {
+  switch(state) {
+    case IDLE: return "idle";
+    case BELT_RUNNING: return "belt_running";
+    case CAMERA_DETECTING: return "camera_detecting";
+    case WAITING_FOR_PIR: return "waiting_for_pir";
+    case WAITING: return "waiting";
+    case PROCESSING: return "processing";
+    default: return "unknown";
   }
 }
 
 /*
 ===============================================================================
-                                API DOCUMENTATION
+                            API LOCAL DOCUMENTATION
 ===============================================================================
 
-🔗 ENDPOINTS REST:
+🔗 ENDPOINTS DISPONIBLES:
 
 GET /status
-- Respuesta: Estado actual del sistema
-- Formato: {"device":"upcyclepro", "state":"idle", "mode":0, "material":"none"}
+- Respuesta: Estado completo del dispositivo
+- Formato: {"device_id":"esp32_main_001", "state":"idle", "backend_connected":true}
 
 POST /classify
-- Body: {"material": 1-3}  // 1=vidrio, 2=plastico, 3=metal
-- Respuesta: Confirmación de inicio
+- Body: {"material": "glass|plastic|metal|auto"}
+- Respuesta: Confirmación de inicio de clasificación
 
-POST /stop  
-- Respuesta: Confirmación de parada
+GET /sensors  
+- Respuesta: Lectura actual de todos los sensores
 
-GET /sensors
-- Respuesta: Estado de sensores PIR y motor
+POST /stop
+- Respuesta: Confirmación de parada del sistema
 
-📡 TÓPICOS MQTT:
+POST /start
+- Respuesta: Confirmación de inicio del sistema
 
-upcyclepro/command (INPUT):
-{"action": "classify", "material": 1}
-{"action": "stop"}
-{"action": "get_status"}
+📡 COMUNICACIÓN CON BACKEND:
 
-upcyclepro/status (OUTPUT):
-{"device":"upcyclepro", "state":"waiting", "mode":1, "material":"vidrio"}
-
-upcyclepro/sensor (OUTPUT):
-{"pir1":false, "pir2":true, "pir3":false, "motor":true}
-
-upcyclepro/material (OUTPUT):
-{"material":"plastico", "processed_at":"timestamp", "servo_used":2}
-
-🔌 WEBSOCKET (Puerto 81):
-- Conexión: ws://IP:81
-- Envía: Mismo formato que MQTT commands
-- Recibe: Estados y sensores en tiempo real
-
-===============================================================================
-                                NODE-RED FLOWS
-===============================================================================
-
-FLOW BÁSICO DE CONTROL:
-[inject] → [function] → [mqtt out: upcyclepro/command]
-                    ↓
-              {"action": "classify", "material": 1}
-
-FLOW DE MONITOREO:
-[mqtt in: upcyclepro/status] → [debug]
-[mqtt in: upcyclepro/sensor] → [chart/gauge]
-
-FLOW HTTP:
-[http request] → [http response]
-     ↓              ↑
-   POST /classify   200 OK
+El dispositivo automáticamente:
+- Se registra con el backend al iniciar
+- Envía datos de sensores cada 5 segundos
+- Procesa comandos del backend
+- Envía resultados de clasificación
+- Mantiene conexión con pings cada minuto
 
 ===============================================================================
 */

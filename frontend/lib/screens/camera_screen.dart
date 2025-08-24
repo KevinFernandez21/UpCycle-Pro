@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:camera/camera.dart';
-import 'dart:io';
+import 'dart:typed_data';
+import 'dart:async';
 import '../widgets/animated_widgets.dart';
-import '../services/camera_service.dart';
+import '../widgets/loading_widgets.dart';
+import '../services/system_service.dart';
 import '../services/api_service.dart';
 
 class CameraScreen extends StatefulWidget {
@@ -13,61 +14,156 @@ class CameraScreen extends StatefulWidget {
 }
 
 class _CameraScreenState extends State<CameraScreen> {
-  final CameraService _cameraService = CameraService();
-  final ApiService _apiService = ApiService();
+  final SystemService _systemService = SystemService();
   
   bool _isLoading = false;
   String _detectedObjects = '0';
   String _confidence = '0.0%';
   String _lastDetectedMaterial = 'Ninguno';
   PredictionResult? _lastPrediction;
+  Uint8List? _currentFrame;
+  StreamSubscription<Uint8List>? _streamSubscription;
+  bool _isStreamActive = false;
+  bool _flashEnabled = false;
+  int _imageQuality = 12;
 
   @override
   void initState() {
     super.initState();
-    _initializeCamera();
+    _startImageStream();
   }
 
   @override
   void dispose() {
-    _cameraService.dispose();
+    _streamSubscription?.cancel();
     super.dispose();
   }
 
-  Future<void> _initializeCamera() async {
-    try {
-      await _cameraService.initialize();
-      if (mounted) setState(() {});
-    } catch (e) {
-      _showError('Error inicializando cámara: $e');
+  void _startImageStream() {
+    if (!_isStreamActive) {
+      _isStreamActive = true;
+      
+      setState(() {
+        _isLoading = true;
+      });
+      
+      // Optimizado para Raspberry Pi 5 - menor frecuencia de captura
+      Timer.periodic(const Duration(milliseconds: 500), (timer) async {
+        if (!_isStreamActive || !mounted) {
+          timer.cancel();
+          return;
+        }
+        
+        try {
+          final imageBytes = await _systemService.captureImageFromEsp32();
+          if (imageBytes != null && mounted) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                setState(() {
+                  _currentFrame = imageBytes;
+                  _isLoading = false; // Ocultar loading cuando se carga la primera imagen
+                });
+              }
+            });
+          }
+        } catch (e) {
+          // Error silencioso para no saturar UI
+          if (mounted) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                setState(() {
+                  _isLoading = false;
+                });
+              }
+            });
+          }
+        }
+      });
     }
+  }
+
+  void _stopImageStream() {
+    _streamSubscription?.cancel();
+    _isStreamActive = false;
   }
 
   Future<void> _takePictureAndClassify() async {
     if (_isLoading) return;
     
-    setState(() => _isLoading = true);
+    if (mounted) {
+      setState(() => _isLoading = true);
+    }
     
     try {
-      final image = await _cameraService.takePicture();
-      if (image != null) {
-        final prediction = await _cameraService.classifyImage(image);
-        if (prediction != null) {
-          setState(() {
-            _lastPrediction = prediction;
-            _detectedObjects = '1';
-            _confidence = prediction.confidencePercentage;
-            _lastDetectedMaterial = prediction.materialType;
+      final imageBytes = await _systemService.captureImageFromEsp32();
+      if (imageBytes != null) {
+        final prediction = await _systemService.classifyImage(imageBytes);
+        if (prediction != null && mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _lastPrediction = prediction;
+                _detectedObjects = '1';
+                _confidence = prediction.confidencePercentage;
+                _lastDetectedMaterial = prediction.materialType;
+              });
+            }
           });
           _showPredictionResult(prediction);
         } else {
           _showError('Error al clasificar la imagen');
         }
+      } else {
+        _showError('Error capturando imagen desde ESP32');
       }
     } catch (e) {
       _showError('Error: $e');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() => _isLoading = false);
+          }
+        });
+      }
+    }
+  }
+
+  Future<void> _toggleFlash() async {
+    _flashEnabled = !_flashEnabled;
+    final success = await _systemService.controlEsp32Cam(flashEnabled: _flashEnabled);
+    if (!success) {
+      _flashEnabled = !_flashEnabled;
+      _showError('Error controlando flash ESP32-CAM');
+    }
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _adjustQuality(bool increase) async {
+    int newQuality = _imageQuality + (increase ? 5 : -5);
+    newQuality = newQuality.clamp(0, 63);
+    
+    final success = await _systemService.controlEsp32Cam(quality: newQuality);
+    if (success && mounted) {
+      setState(() {
+        _imageQuality = newQuality;
+      });
+    } else {
+      _showError('Error ajustando calidad ESP32-CAM');
+    }
+  }
+
+  Future<void> _restartCamera() async {
+    _stopImageStream();
+    final success = await _systemService.controlEsp32Cam(action: 'restart');
+    if (success) {
+      await Future.delayed(const Duration(seconds: 2));
+      _startImageStream();
+    } else {
+      _showError('Error reiniciando ESP32-CAM');
+      _startImageStream();
     }
   }
 
@@ -230,25 +326,18 @@ class _CameraScreenState extends State<CameraScreen> {
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: _cameraService.isInitialized && _cameraService.controller != null
-                    ? CameraPreview(_cameraService.controller!)
-                    : const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircularProgressIndicator(
-                              color: Colors.white70,
-                            ),
-                            SizedBox(height: 16),
-                            Text(
-                              'Inicializando Cámara...',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 18,
-                              ),
-                            ),
-                          ],
-                        ),
+                child: _currentFrame != null
+                    ? Image.memory(
+                        _currentFrame!,
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: double.infinity,
+                        // Optimización para Raspberry Pi 5
+                        filterQuality: FilterQuality.medium,
+                      )
+                    : const RaspberryPiLoader(
+                        message: 'Conectando con ESP32-CAM...',
+                        size: 48,
                       ),
               ),
             ),
@@ -263,14 +352,20 @@ class _CameraScreenState extends State<CameraScreen> {
                 Expanded(
                   child: FloatingButton(
                     duration: const Duration(seconds: 4),
-                    child: _buildControlButton('[+] ZOOM'),
+                    child: GestureDetector(
+                      onTap: () => _adjustQuality(true),
+                      child: _buildControlButton('[+] CALIDAD'),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: FloatingButton(
                     duration: const Duration(seconds: 5),
-                    child: _buildControlButton('[-] ZOOM'),
+                    child: GestureDetector(
+                      onTap: () => _adjustQuality(false),
+                      child: _buildControlButton('[-] CALIDAD'),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -289,7 +384,12 @@ class _CameraScreenState extends State<CameraScreen> {
                 Expanded(
                   child: FloatingButton(
                     duration: const Duration(seconds: 6),
-                    child: _buildControlButton('[F] FOCO'),
+                    child: GestureDetector(
+                      onTap: _toggleFlash,
+                      child: _buildControlButton(
+                        _flashEnabled ? '[F] FLASH ON' : '[F] FLASH OFF'
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -303,19 +403,33 @@ class _CameraScreenState extends State<CameraScreen> {
   Widget _buildControlButton(String text) {
     return Container(
       height: 50,
-      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.5),
-        border: Border.all(color: Colors.white.withOpacity(0.3), width: 2),
-        borderRadius: BorderRadius.circular(8),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF1a1a2e), Color(0xFF16213e)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFF00aaff).withOpacity(0.3),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Center(
         child: Text(
           text,
           style: const TextStyle(
             color: Colors.white,
-            fontSize: 14,
+            fontSize: 12,
             fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
           ),
         ),
       ),
@@ -346,9 +460,9 @@ class _CameraScreenState extends State<CameraScreen> {
                   child: Column(
                     children: [
                       AnimatedProgressBar(
-                        label: '[F] Enfoque',
-                        value: '87%',
-                        progress: 0.87,
+                        label: '[Q] Calidad',
+                        value: '${((_imageQuality / 63) * 100).toInt()}%',
+                        progress: _imageQuality / 63,
                         color: const Color(0xFF4ecdc4),
                         duration: const Duration(milliseconds: 2000),
                       ),
@@ -358,14 +472,20 @@ class _CameraScreenState extends State<CameraScreen> {
                           Expanded(
                             child: FloatingButton(
                               duration: const Duration(seconds: 3),
-                              child: _buildActionButton('MENOS'),
+                              child: GestureDetector(
+                                onTap: () => _adjustQuality(false),
+                                child: _buildActionButton('MENOR'),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: FloatingButton(
                               duration: const Duration(seconds: 4),
-                              child: _buildActionButton('MÁS'),
+                              child: GestureDetector(
+                                onTap: () => _adjustQuality(true),
+                                child: _buildActionButton('MAYOR'),
+                              ),
                             ),
                           ),
                         ],
@@ -383,9 +503,9 @@ class _CameraScreenState extends State<CameraScreen> {
                   child: Column(
                     children: [
                       AnimatedProgressBar(
-                        label: '[L] Exposición',
-                        value: '50%',
-                        progress: 0.50,
+                        label: '[S] Estado ESP32-CAM',
+                        value: _isStreamActive ? 'CONECTADO' : 'DESCONECTADO',
+                        progress: _isStreamActive ? 1.0 : 0.0,
                         color: const Color(0xFFfeca57),
                         duration: const Duration(milliseconds: 2500),
                       ),
@@ -395,14 +515,22 @@ class _CameraScreenState extends State<CameraScreen> {
                           Expanded(
                             child: FloatingButton(
                               duration: const Duration(seconds: 5),
-                              child: _buildControlButton('[D] OSCURO'),
+                              child: GestureDetector(
+                                onTap: _restartCamera,
+                                child: _buildControlButton('[R] REINICIAR'),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: FloatingButton(
                               duration: const Duration(seconds: 3),
-                              child: _buildControlButton('[B] CLARO'),
+                              child: GestureDetector(
+                                onTap: _isStreamActive ? _stopImageStream : _startImageStream,
+                                child: _buildControlButton(
+                                  _isStreamActive ? '[P] PAUSAR' : '[I] INICIAR'
+                                ),
+                              ),
                             ),
                           ),
                         ],
@@ -423,17 +551,27 @@ class _CameraScreenState extends State<CameraScreen> {
       height: 40,
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+          colors: [Color(0xFF00aaff), Color(0xFF0099cc)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00aaff).withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Center(
         child: Text(
           text,
           style: const TextStyle(
             color: Colors.white,
-            fontSize: 14,
+            fontSize: 12,
             fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
           ),
         ),
       ),

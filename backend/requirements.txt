@@ -1,0 +1,58 @@
+# FastAPI and ASGI server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# WebSocket support
+websockets==12.0
+
+# HTTP client for ESP32 communication
+aiohttp==3.9.0
+httpx==0.25.0
+
+# Data validation and serialization
+pydantic==2.4.2
+
+# Machine Learning and Image Processing
+tensorflow==2.13.0
+numpy==1.24.3
+pillow==10.0.1
+opencv-python==4.8.1.78
+
+# Database support (for future expansion)
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.7
+
+# Configuration and environment
+python-dotenv==1.0.0
+
+# Logging and monitoring
+structlog==23.2.0
+
+# Date and time handling
+python-dateutil==2.8.2
+
+# JSON handling
+orjson==3.9.10
+
+# CORS support
+fastapi-cors==0.0.6
+
+# Background tasks and scheduling
+celery==5.3.4
+redis==5.0.1
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.0
+
+# Development tools
+black==23.10.1
+flake8==6.1.0
+mypy==1.7.0
+
+# Additional utilities
+cryptography==41.0.7
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0

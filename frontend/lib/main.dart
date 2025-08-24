@@ -3,7 +3,6 @@ import 'dart:async';
 import 'screens/home_screen.dart';
 import 'screens/camera_screen.dart';
 import 'screens/config_screen.dart';
-import 'screens/monitoring_screen.dart';
 import 'widgets/app_header.dart';
 import 'widgets/custom_navigation.dart';
 
@@ -110,7 +109,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                 children: const [
                   HomeScreen(),
                   CameraScreen(),
-                  MonitoringScreen(),
                   ConfigScreen(),
                 ],
               ),

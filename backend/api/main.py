@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import tensorflow as tf
@@ -10,7 +10,14 @@ from typing import Dict, List
 import uvicorn
 from datetime import datetime
 import os
+import json
+import asyncio
+
+# Import routers and services
 from routes.microcontroller import router as microcontroller_router
+from routes.esp32_integration import router as esp32_router
+from services.system_service import SystemService
+from websocket_manager import websocket_manager
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -34,13 +41,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Incluir rutas del microcontrolador
+# Incluir rutas
 app.include_router(microcontroller_router, prefix="/microcontroller", tags=["microcontroller"])
+app.include_router(esp32_router, prefix="/api", tags=["esp32"])
 
 # Variables globales
 model = None
 class_names = ['glass', 'metal', 'plastic']
 IMG_SIZE = (224, 224)
+system_service = SystemService()
 
 def create_dummy_model():
     """Crear un modelo dummy para pruebas cuando no se encuentra el modelo real"""
@@ -325,10 +334,206 @@ async def get_available_models():
         logger.error(f"Error obteniendo modelos disponibles: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error al obtener modelos: {str(e)}")
 
+# WebSocket Endpoints
+@app.websocket("/ws/{client_type}")
+async def websocket_endpoint(websocket: WebSocket, client_type: str):
+    """WebSocket principal para comunicación en tiempo real"""
+    await websocket_manager.connect(websocket, client_type)
+    try:
+        while True:
+            # Recibir mensajes del cliente
+            message_text = await websocket.receive_text()
+            try:
+                message = json.loads(message_text)
+                await websocket_manager.handle_client_message(websocket, message)
+            except json.JSONDecodeError:
+                logger.error(f"Invalid JSON received from WebSocket: {message_text}")
+                
+    except WebSocketDisconnect:
+        await websocket_manager.disconnect(websocket, client_type)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        await websocket_manager.disconnect(websocket, client_type)
+
+@app.websocket("/ws/camera_stream")
+async def camera_stream_websocket(websocket: WebSocket):
+    """WebSocket específico para stream de cámara"""
+    await websocket.accept()
+    
+    try:
+        # Suscribir automáticamente a camera_stream
+        await websocket_manager.subscribe_to_event(websocket, "camera_stream")
+        
+        while True:
+            # Mantener conexión viva
+            await asyncio.sleep(1)
+            
+    except WebSocketDisconnect:
+        await websocket_manager.unsubscribe_from_event(websocket, "camera_stream")
+    except Exception as e:
+        logger.error(f"Camera stream WebSocket error: {e}")
+
+# Endpoints mejorados que integran con el sistema ESP32
+@app.post("/system/capture_and_classify")
+async def capture_and_classify_from_esp32():
+    """Capturar imagen de ESP32-CAM y clasificar"""
+    if model is None:
+        raise HTTPException(status_code=503, detail="Modelo no cargado")
+    
+    try:
+        # Capturar imagen desde ESP32-CAM
+        image_bytes = await system_service.capture_image_from_esp32()
+        if image_bytes is None:
+            raise HTTPException(status_code=503, detail="No se pudo capturar imagen de ESP32-CAM")
+        
+        # Clasificar imagen
+        result = await system_service.classify_image(image_bytes, model)
+        if result is None:
+            raise HTTPException(status_code=500, detail="Error en clasificación")
+        
+        # Enviar comando al ESP32-CONTROL si la confianza es alta
+        if result["confidence"] > 0.7:
+            classification_success = await system_service.send_classification_command(
+                material=result["predicted_class"],
+                servo_position=result["servo_position"]
+            )
+            
+            result["system_action"] = {
+                "servo_command_sent": classification_success,
+                "servo_position": result["servo_position"],
+                "material": result["predicted_class"]
+            }
+        else:
+            result["system_action"] = {
+                "servo_command_sent": False,
+                "reason": "Low confidence",
+                "threshold": 0.7
+            }
+        
+        # Broadcast resultado via WebSocket
+        await websocket_manager.broadcast_classification_result(result)
+        
+        logger.info(f"Complete classification: {result['predicted_class']} ({result['confidence']:.3f})")
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in capture_and_classify: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/system/metrics")
+async def get_system_metrics():
+    """Obtener métricas completas del sistema"""
+    try:
+        # Obtener métricas del sistema ESP32
+        esp32_metrics = await system_service.get_system_metrics()
+        
+        # Agregar métricas de WebSocket
+        websocket_stats = websocket_manager.get_connection_stats()
+        
+        # Agregar información del modelo
+        model_info = {
+            "loaded": model is not None,
+            "classes": class_names,
+            "input_shape": getattr(model, "input_shape", None) if model else None
+        }
+        
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "system_health": "healthy" if esp32_metrics["connectivity"]["online_devices"] > 0 else "degraded",
+            "esp32_devices": esp32_metrics,
+            "websocket_connections": websocket_stats,
+            "ml_model": model_info,
+            "api_version": "2.0.0"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting system metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/system/discover_devices")
+async def discover_esp32_devices():
+    """Descubrir dispositivos ESP32 en la red"""
+    try:
+        discovered = await system_service.discover_esp32_devices()
+        
+        # Broadcast estado de dispositivos via WebSocket
+        await websocket_manager.broadcast_device_status({
+            "action": "discovery_complete",
+            "discovered_devices": discovered,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        return {
+            "status": "success",
+            "discovered_devices": discovered,
+            "total_devices": len(discovered["esp32_cam"]) + len(discovered["esp32_control"]),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error discovering devices: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Background task para actualización periódica del sistema
+@app.on_event("startup")
+async def startup_periodic_tasks():
+    """Iniciar tareas periódicas del sistema"""
+    
+    async def periodic_device_discovery():
+        """Descubrir dispositivos periódicamente"""
+        while True:
+            try:
+                await asyncio.sleep(300)  # Cada 5 minutos
+                discovered = await system_service.discover_esp32_devices()
+                
+                # Broadcast si hay cambios
+                await websocket_manager.broadcast_device_status({
+                    "action": "periodic_discovery",
+                    "discovered_devices": discovered,
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                logger.error(f"Error in periodic device discovery: {e}")
+    
+    async def periodic_system_status():
+        """Enviar estado del sistema periódicamente"""
+        while True:
+            try:
+                await asyncio.sleep(30)  # Cada 30 segundos
+                
+                # Obtener métricas
+                metrics = await system_service.get_system_metrics()
+                
+                # Broadcast estado via WebSocket
+                await websocket_manager.broadcast_system_status({
+                    "system_metrics": metrics,
+                    "model_loaded": model is not None,
+                    "api_version": "2.0.0",
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                logger.error(f"Error in periodic system status: {e}")
+    
+    # Iniciar tareas en background
+    asyncio.create_task(periodic_device_discovery())
+    asyncio.create_task(periodic_system_status())
+    
+    # Descubrimiento inicial
+    try:
+        await system_service.discover_esp32_devices()
+        logger.info("Initial ESP32 device discovery completed")
+    except Exception as e:
+        logger.error(f"Error in initial device discovery: {e}")
+
 if __name__ == "__main__":
     uvicorn.run(
-        "main:app",   # Cambia esto si tu archivo tiene otro nombre
-        host="192.168.0.108",
+        "main:app",
+        host="0.0.0.0",  # Escuchar en todas las interfaces
         port=8000,
         reload=True,
         log_level="info"
