@@ -1,3 +1,14 @@
 # Contiene la configuración del endpoint de AWS y las claves
 endpoint: "https://mi-modelo-aws.com"
+rnn_endpoint: "https://api-gateway-url.execute-api.us-east-1.amazonaws.com/prod"
 clave_api: "mi_clave_secreta_aws"
+region: "us-east-1"
+
+# Configuración DynamoDB
+dynamodb:
+  material_volume_table: "upcycle-pro-rnn-material-volume-prod"
+  predictions_table: "upcycle-pro-rnn-predictions-prod"
+
+# Configuración S3
+s3:
+  model_bucket: "upcycle-pro-models-prod"

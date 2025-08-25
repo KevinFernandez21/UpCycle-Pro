@@ -16,6 +16,7 @@ import asyncio
 # Import routers and services
 from routes.microcontroller import router as microcontroller_router
 from routes.esp32_integration import router as esp32_router
+from routes.rnn_predictions import router as rnn_router
 from services.system_service import SystemService
 from websocket_manager import websocket_manager
 
@@ -25,9 +26,9 @@ logger = logging.getLogger(__name__)
 
 # Configuración de la aplicación
 app = FastAPI(
-    title="Material Classification API",
-    description="API para clasificación de materiales (vidrio, plástico, metal) usando CNN",
-    version="1.0.0",
+    title="UpCycle Pro API",
+    description="API para clasificación de materiales usando CNN y predicción de volúmenes con RNN",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -44,6 +45,9 @@ app.add_middleware(
 # Incluir rutas
 app.include_router(microcontroller_router, prefix="/microcontroller", tags=["microcontroller"])
 app.include_router(esp32_router, prefix="/api", tags=["esp32"])
+
+# Incluir rutas de predicción RNN
+app.include_router(rnn_router, prefix="/rnn", tags=["rnn-predictions"])
 
 # Variables globales
 model = None
@@ -63,7 +67,7 @@ def create_dummy_model():
     model = Sequential([
         base_model,
         GlobalAveragePooling2D(),
-        Dense(128, activation='relu'),
+        Dense(128, acti vation='relu'),
         Dense(3, activation='softmax')
     ])
 

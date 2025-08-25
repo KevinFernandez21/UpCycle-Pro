@@ -27,8 +27,8 @@
 #include "board_config.h"
 
 // Configuración WiFi
-const char* ssid = "NETLIFE-SANCHEZ";
-const char* password = "kd200421";
+const char* ssid = "hnaranja21";
+const char* password = "hola12345";
 
 // Configuración MQTT
 const char* mqtt_server = "localhost";  // IP de Node-RED
@@ -318,7 +318,10 @@ void setupWebServer() {
       return;
     }
 
-    webServer.send(200, "image/jpeg", (const char*)fb->buf, fb->len);
+    webServer.sendHeader("Content-Type", "image/jpeg");
+    webServer.sendHeader("Content-Length", String(fb->len));
+    webServer.send(200);
+    webServer.sendContent((const char*)fb->buf, fb->len);
     esp_camera_fb_return(fb);
     
     last_capture = millis();
